@@ -77,6 +77,27 @@ async function getBookById(bookId) {
   return data;
 }
 
+/**
+ * Backfill a missing cover on an already-cached book (self-healing for
+ * books cached before a cover was known, e.g. from a stale link).
+ * Best-effort: failures are logged but never block page rendering.
+ */
+async function updateBookCover(bookId, coverUrl) {
+  const client = getSupabaseClient();
+  if (!client) return null;
+  const { data, error } = await client
+    .from("books")
+    .update({ cover_url: coverUrl })
+    .eq("id", bookId)
+    .select()
+    .single();
+  if (error) {
+    console.error("Failed to backfill book cover:", error);
+    return null;
+  }
+  return data;
+}
+
 /** Look up a cached book by its Open Library work id. */
 async function getBookByWorkId(workId) {
   const client = getSupabaseClient();

@@ -145,18 +145,43 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else {
       const existing = await getBookByWorkId(workParam);
       if (existing) {
-        state.book = existing;
-        state.bookData = existing;
+        // Self-heal: if this book was cached before the cover-carrying fix
+        // (or Open Library just didn't have a cover at cache time) and the
+        // link now carries a cover, backfill it rather than leaving the
+        // book stuck with no image forever.
+        const carriedCover = getQueryParam("c");
+        if (!existing.cover_url && carriedCover) {
+          const fixed = await updateBookCover(existing.id, carriedCover);
+          state.book = fixed || existing;
+          state.bookData = fixed || existing;
+        } else {
+          state.book = existing;
+          state.bookData = existing;
+        }
         history.replaceState(null, "", `book.html?id=${existing.id}`);
       } else {
-        // Not cached yet — fetch what we can directly from Open Library.
+        // Not cached yet. Prefer whatever the search result already told us
+        // (title/author/year/cover — passed through the link) since Open
+        // Library's /works/ endpoint frequently has no cover of its own
+        // (covers usually live on editions, not works) and would otherwise
+        // silently drop a perfectly good cover image. Only fall back to a
+        // fresh Open Library lookup for anything not passed in, mainly the
+        // description.
+        const carriedTitle = getQueryParam("t");
+        const carriedAuthor = getQueryParam("a");
+        const carriedYear = getQueryParam("y");
+        const carriedCover = getQueryParam("c");
+
         const details = await getOpenLibraryWorkDetails(workParam);
+
         state.bookData = {
           openlibrary_work_id: workParam,
-          title: details.title || "Untitled",
-          author: details.authorNames && details.authorNames.length ? details.authorNames.join(", ") : "Unknown author",
-          cover_url: details.coverUrl,
-          first_publish_year: null,
+          title: carriedTitle || details.title || "Untitled",
+          author:
+            carriedAuthor ||
+            (details.authorNames && details.authorNames.length ? details.authorNames.join(", ") : "Unknown author"),
+          cover_url: carriedCover || details.coverUrl || null,
+          first_publish_year: carriedYear ? Number(carriedYear) : null,
           description: details.description,
         };
       }

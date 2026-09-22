@@ -74,9 +74,23 @@ const STATUS_BADGE_CLASS = { want: "badge-want", have: "badge-have", read: "badg
  */
 function renderBookCard(book, opts = {}) {
   const linkBy = opts.linkBy || (book.id ? "id" : "work");
-  const linkParam =
-    linkBy === "id" ? `id=${encodeURIComponent(book.id)}` : `work=${encodeURIComponent(book.openlibrary_work_id)}`;
-  const href = `book.html?${linkParam}`;
+  let href;
+  if (linkBy === "id") {
+    href = `book.html?id=${encodeURIComponent(book.id)}`;
+  } else {
+    // Carry along what we already know (title/author/year/cover) from the
+    // search result, since Open Library's /works/ endpoint often has no
+    // cover of its own (covers usually live on editions, not works) —
+    // without this, a book with a perfectly good cover in search results
+    // would lose it the moment it's cached from the detail page.
+    const params = new URLSearchParams();
+    params.set("work", book.openlibrary_work_id);
+    if (book.title) params.set("t", book.title);
+    if (book.author) params.set("a", book.author);
+    if (book.first_publish_year) params.set("y", book.first_publish_year);
+    if (book.cover_url) params.set("c", book.cover_url);
+    href = `book.html?${params.toString()}`;
+  }
 
   const coverHtml = book.cover_url
     ? `<img src="${escapeHtml(book.cover_url)}" alt="Cover of ${escapeHtml(book.title)}" loading="lazy" onerror="this.parentElement.innerHTML = getCoverPlaceholderHtml();">`
