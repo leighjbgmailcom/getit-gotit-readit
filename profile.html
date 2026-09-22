@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile — GetIt GotIt ReadIt</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container" id="page-container">
+    <div class="spinner" id="page-spinner"></div>
+
+    <div id="profile-content" class="hidden">
+      <div class="profile-header">
+        <div class="profile-avatar" id="profile-avatar"></div>
+        <div>
+          <h1 id="profile-name" style="margin-bottom:2px;"></h1>
+          <div class="profile-handle" id="profile-handle"></div>
+          <div class="profile-counts">
+            <div class="profile-count-item"><strong id="stat-want">0</strong>Get It</div>
+            <div class="profile-count-item"><strong id="stat-have">0</strong>Got It</div>
+            <div class="profile-count-item"><strong id="stat-read">0</strong>Read It</div>
+          </div>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="section-header"><h2>Read It</h2></div>
+        <div id="read-books"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-header"><h2>Recent Reviews</h2></div>
+        <div class="card card-pad" id="recent-reviews"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  let username = getQueryParam("u");
+
+  if (!username) {
+    // No username given — show the logged-in user's own profile.
+    const myProfile = await getCurrentProfile();
+    if (!myProfile) {
+      showEmpty("Log in to see your profile, or add ?u=username to view someone else's.");
+      return;
+    }
+    username = myProfile.username;
+    history.replaceState(null, "", `profile.html?u=${encodeURIComponent(username)}`);
+  }
+
+  const profile = await getProfileByUsername(username);
+  if (!profile) {
+    showEmpty("That profile couldn't be found.");
+    return;
+  }
+
+  document.title = `${profile.display_name || profile.username} — GetIt GotIt ReadIt`;
+  document.getElementById("profile-name").textContent = profile.display_name || profile.username;
+  document.getElementById("profile-handle").textContent = `@${profile.username}`;
+  document.getElementById("profile-avatar").textContent = (profile.display_name || profile.username).charAt(0).toUpperCase();
+
+  const [counts, readBooks, reviews] = await Promise.all([
+    getProfileCounts(profile.id),
+    getProfileReadBooks(profile.id),
+    getProfileRecentReviews(profile.id),
+  ]);
+
+  document.getElementById("stat-want").textContent = counts.want;
+  document.getElementById("stat-have").textContent = counts.have;
+  document.getElementById("stat-read").textContent = counts.read;
+
+  renderBookGrid(
+    document.getElementById("read-books"),
+    readBooks.map((r) => r.books),
+    { emptyMessage: `${escapeHtml(profile.display_name || profile.username)} hasn't marked any books as read yet.` }
+  );
+
+  const reviewsEl = document.getElementById("recent-reviews");
+  if (reviews.length === 0) {
+    reviewsEl.innerHTML = `<p class="text-muted">No reviews yet.</p>`;
+  } else {
+    reviewsEl.innerHTML = reviews
+      .map(
+        (r) => `
+        <div class="review">
+          <div class="review-header">
+            <div class="review-meta">
+              ${r.rating ? starsHtml(r.rating) : ""}
+              <a href="book.html?id=${r.books.id}" class="review-author">${escapeHtml(r.books.title)}</a>
+              <span class="review-date">${formatDate(r.created_at)}</span>
+            </div>
+          </div>
+          ${r.review ? `<p>${escapeHtml(r.review)}</p>` : ""}
+        </div>
+      `
+      )
+      .join("");
+  }
+
+  document.getElementById("page-spinner").classList.add("hidden");
+  document.getElementById("profile-content").classList.remove("hidden");
+});
+
+function showEmpty(message) {
+  document.getElementById("page-spinner").classList.add("hidden");
+  document.getElementById("page-container").innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+}
+</script>
+</body>
+</html>

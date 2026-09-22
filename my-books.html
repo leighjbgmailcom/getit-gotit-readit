@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Books — GetIt GotIt ReadIt</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container" id="page-container">
+    <h1>My Books</h1>
+    <p class="text-muted">Everything you want, own, and have read, in one place.</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="want">Get It <span class="tab-count" id="count-want">0</span></button>
+      <button class="tab-btn" data-tab="have">Got It <span class="tab-count" id="count-have">0</span></button>
+      <button class="tab-btn" data-tab="read">Read It <span class="tab-count" id="count-read">0</span></button>
+    </div>
+
+    <div id="tab-content"><div class="spinner"></div></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/app.js"></script>
+<script>
+let myBooks = { want: [], have: [], read: [] };
+let activeTab = "want";
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const user = await requireAuth();
+  if (!user) return; // requireAuth already redirected to login
+
+  myBooks = await getMyBooksByStatus();
+  updateCounts();
+  renderTab();
+
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeTab = btn.getAttribute("data-tab");
+      renderTab();
+    });
+  });
+});
+
+function updateCounts() {
+  document.getElementById("count-want").textContent = myBooks.want.length;
+  document.getElementById("count-have").textContent = myBooks.have.length;
+  document.getElementById("count-read").textContent = myBooks.read.length;
+}
+
+function renderTab() {
+  const contentEl = document.getElementById("tab-content");
+  const rows = myBooks[activeTab];
+
+  if (!rows || rows.length === 0) {
+    const emptyMessages = {
+      want: "No books on your Get It list yet. <a href=\"search.html\">Search for one</a> to add it.",
+      have: "No books marked as Got It yet.",
+      read: "No books marked as Read It yet.",
+    };
+    contentEl.innerHTML = `<div class="empty-state">${emptyMessages[activeTab]}</div>`;
+    return;
+  }
+
+  contentEl.innerHTML = `<div class="book-grid" id="book-grid"></div>`;
+  const gridEl = document.getElementById("book-grid");
+
+  gridEl.innerHTML = rows
+    .map((row) => {
+      const book = row.books;
+      return `
+        <div class="book-card-wrap">
+          ${renderBookCard(book, { status: row.status })}
+          <div class="status-buttons" style="margin-top:8px; justify-content:center;" data-book-id="${book.id}">
+            <button class="btn-status btn-sm ${row.status === "want" ? "active" : ""}" data-status="want">Get It</button>
+            <button class="btn-status btn-sm ${row.status === "have" ? "active" : ""}" data-status="have">Got It</button>
+            <button class="btn-status btn-sm ${row.status === "read" ? "active" : ""}" data-status="read">Read It</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  gridEl.querySelectorAll(".status-buttons").forEach((group) => {
+    const bookId = group.getAttribute("data-book-id");
+    group.querySelectorAll(".btn-status").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const status = btn.getAttribute("data-status");
+        btn.disabled = true;
+        const { error } = await setBookStatus(bookId, status);
+        btn.disabled = false;
+        if (error) {
+          showToast(error, "error");
+          return;
+        }
+        showToast(`Moved to ${STATUS_LABELS[status]}.`, "success");
+        myBooks = await getMyBooksByStatus();
+        updateCounts();
+        renderTab();
+      });
+    });
+  });
+}
+</script>
+</body>
+</html>

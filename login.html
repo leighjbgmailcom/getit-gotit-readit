@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log In — GetIt GotIt ReadIt</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container">
+    <div class="card form-card">
+      <h1 class="text-center">Log In</h1>
+      <p class="text-center text-muted">Welcome back. Pick up right where you left off.</p>
+
+      <div id="form-alert" class="hidden"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit">Log In</button>
+      </form>
+
+      <p class="form-footer-link"><a href="#" id="forgot-password-link">Forgot your password?</a></p>
+      <p class="form-footer-link">Don't have an account? <a href="signup.html">Sign up</a></p>
+    </div>
+
+    <!-- Forgot-password panel, hidden until requested -->
+    <div class="card form-card hidden" id="forgot-password-card" style="margin-top:16px;">
+      <h2 class="text-center">Reset Password</h2>
+      <p class="text-center text-muted">We'll email you a link to reset your password.</p>
+      <div id="forgot-alert" class="hidden"></div>
+      <form id="forgot-password-form">
+        <div class="form-group">
+          <label for="forgot-email">Email</label>
+          <input type="email" id="forgot-email" required autocomplete="email">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Send Reset Link</button>
+      </form>
+      <p class="form-footer-link"><a href="#" id="cancel-forgot-link">Back to login</a></p>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  // Already logged in? Send them straight through.
+  const existingUser = await getCurrentUser();
+  if (existingUser) {
+    window.location.href = POST_LOGIN_REDIRECT;
+    return;
+  }
+
+  const alertBox = document.getElementById("form-alert");
+  const form = document.getElementById("login-form");
+  const submitBtn = document.getElementById("login-submit");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAlert(alertBox);
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Logging in…";
+
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+
+    const { error } = await signIn(email, password);
+
+    if (error) {
+      showAlert(alertBox, error, "error");
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Log In";
+      return;
+    }
+
+    const redirectTarget = getQueryParam("redirect");
+    window.location.href = redirectTarget && redirectTarget.endsWith(".html") ? redirectTarget : POST_LOGIN_REDIRECT;
+  });
+
+  // Forgot password toggle
+  const loginCard = document.querySelector(".form-card");
+  const forgotCard = document.getElementById("forgot-password-card");
+  document.getElementById("forgot-password-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    loginCard.classList.add("hidden");
+    forgotCard.classList.remove("hidden");
+  });
+  document.getElementById("cancel-forgot-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    forgotCard.classList.add("hidden");
+    loginCard.classList.remove("hidden");
+  });
+
+  const forgotAlert = document.getElementById("forgot-alert");
+  document.getElementById("forgot-password-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAlert(forgotAlert);
+    const email = document.getElementById("forgot-email").value.trim();
+    const { error } = await sendPasswordReset(email);
+    if (error) {
+      showAlert(forgotAlert, error, "error");
+    } else {
+      showAlert(forgotAlert, "Check your email for a password reset link.", "success");
+    }
+  });
+});
+</script>
+</body>
+</html>

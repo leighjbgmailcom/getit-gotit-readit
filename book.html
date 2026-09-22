@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book — GetIt GotIt ReadIt</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container" id="book-page-container">
+    <div class="spinner" id="page-spinner"></div>
+
+    <div id="book-content" class="hidden">
+      <div class="book-detail-header">
+        <div class="book-detail-cover" id="book-cover"></div>
+        <div class="book-detail-info">
+          <h1 id="book-title"></h1>
+          <div class="book-detail-author" id="book-author"></div>
+          <div class="book-detail-year" id="book-year"></div>
+
+          <div class="status-buttons" id="status-buttons">
+            <button class="btn-status" data-status="want">Get It</button>
+            <button class="btn-status" data-status="have">Got It</button>
+            <button class="btn-status" data-status="read">Read It</button>
+          </div>
+          <div id="status-hint" class="form-hint" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="section-header"><h2>About the Book</h2></div>
+        <div class="card card-pad">
+          <p id="book-description" class="text-muted">No description available.</p>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header"><h2>GetIt GotIt ReadIt Community</h2></div>
+        <div class="card community-stats">
+          <div class="community-stat want">
+            <div class="count" id="want-count">0</div>
+            <div class="label">Get It</div>
+          </div>
+          <div class="community-stat have">
+            <div class="count" id="have-count">0</div>
+            <div class="label">Got It</div>
+          </div>
+          <div class="community-stat read">
+            <div class="count" id="read-count">0</div>
+            <div class="label">Read It</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <h2>Reviews</h2>
+        </div>
+
+        <div class="card card-pad" id="review-form-card">
+          <!-- filled in dynamically: leave-a-review / your review / login prompt -->
+        </div>
+
+        <div class="card card-pad" style="margin-top:16px;">
+          <div id="reviews-list"><p class="text-muted">Loading reviews…</p></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/app.js"></script>
+<script>
+const state = {
+  book: null,        // cached Supabase row once it exists
+  bookData: null,     // best-known display data (works even before caching)
+  currentUser: null,
+  myStatus: null,
+  myReview: null,
+};
+
+document.addEventListener("DOMContentLoaded", async () => {
+  state.currentUser = await getCurrentUser();
+
+  const idParam = getQueryParam("id");
+  const workParam = getQueryParam("work");
+
+  if (!idParam && !workParam) {
+    showEmptyPage("No book was specified.");
+    return;
+  }
+
+  try {
+    if (idParam) {
+      const book = await getBookById(idParam);
+      if (!book) {
+        showEmptyPage("That book couldn't be found.");
+        return;
+      }
+      state.book = book;
+      state.bookData = book;
+    } else {
+      const existing = await getBookByWorkId(workParam);
+      if (existing) {
+        state.book = existing;
+        state.bookData = existing;
+        history.replaceState(null, "", `book.html?id=${existing.id}`);
+      } else {
+        // Not cached yet — fetch what we can directly from Open Library.
+        const details = await getOpenLibraryWorkDetails(workParam);
+        state.bookData = {
+          openlibrary_work_id: workParam,
+          title: details.title || "Untitled",
+          author: details.authorNames && details.authorNames.length ? details.authorNames.join(", ") : "Unknown author",
+          cover_url: details.coverUrl,
+          first_publish_year: null,
+          description: details.description,
+        };
+      }
+    }
+
+    await renderBookPage();
+  } catch (err) {
+    console.error("Failed to load book page:", err);
+    showEmptyPage("Something went wrong loading this book. Please try again.");
+  }
+});
+
+function showEmptyPage(message) {
+  document.getElementById("page-spinner").classList.add("hidden");
+  document.getElementById("book-page-container").innerHTML = `<div class="empty-state">${escapeHtml(message)} <br><a href="search.html">Back to search</a></div>`;
+}
+
+async function renderBookPage() {
+  const data = state.bookData;
+
+  document.title = `${data.title} — GetIt GotIt ReadIt`;
+  document.getElementById("book-title").textContent = data.title;
+  document.getElementById("book-author").textContent = data.author || "Unknown author";
+  document.getElementById("book-year").textContent = formatYear(data.first_publish_year);
+  document.getElementById("book-description").textContent = data.description
+    ? data.description
+    : "No description available for this book yet.";
+
+  const coverEl = document.getElementById("book-cover");
+  coverEl.innerHTML = data.cover_url
+    ? `<img src="${escapeHtml(data.cover_url)}" alt="Cover of ${escapeHtml(data.title)}" onerror="this.parentElement.innerHTML = getCoverPlaceholderHtml();">`
+    : getCoverPlaceholderHtml();
+
+  wireStatusButtons();
+
+  if (state.currentUser && state.book) {
+    state.myStatus = await getMyStatusForBook(state.book.id);
+    updateStatusButtonsUI();
+  }
+
+  await refreshCommunityStats();
+  await refreshReviewsSection();
+
+  document.getElementById("page-spinner").classList.add("hidden");
+  document.getElementById("book-content").classList.remove("hidden");
+}
+
+function wireStatusButtons() {
+  document.querySelectorAll(".btn-status").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!state.currentUser) {
+        showToast("Please log in to add books to your library.", "info");
+        window.location.href = `login.html?redirect=book.html`;
+        return;
+      }
+
+      const status = btn.getAttribute("data-status");
+      btn.disabled = true;
+
+      const book = await ensureBookCached();
+      if (!book) {
+        showToast("Couldn't save this book. Please try again.", "error");
+        btn.disabled = false;
+        return;
+      }
+
+      const { userBook, error } = await setBookStatus(book.id, status);
+      btn.disabled = false;
+
+      if (error) {
+        showToast(error, "error");
+        return;
+      }
+
+      state.myStatus = userBook;
+      updateStatusButtonsUI();
+      showToast(`Marked as ${STATUS_LABELS[status]}.`, "success");
+      await refreshCommunityStats();
+      await refreshReviewsSection();
+    });
+  });
+}
+
+function updateStatusButtonsUI() {
+  document.querySelectorAll(".btn-status").forEach((btn) => {
+    const status = btn.getAttribute("data-status");
+    btn.classList.toggle("active", !!(state.myStatus && state.myStatus.status === status));
+  });
+  const hint = document.getElementById("status-hint");
+  hint.textContent = state.myStatus
+    ? `You marked this as "${STATUS_LABELS[state.myStatus.status]}". Click another status to change it.`
+    : "";
+}
+
+/** Make sure this book has a row in the `books` cache table, creating it if needed. */
+async function ensureBookCached() {
+  if (state.book) return state.book;
+  const { book, error } = await getOrCreateBook(state.bookData);
+  if (error) {
+    console.error(error);
+    return null;
+  }
+  state.book = book;
+  state.bookData = book;
+  history.replaceState(null, "", `book.html?id=${book.id}`);
+  return book;
+}
+
+async function refreshCommunityStats() {
+  if (!state.book) {
+    document.getElementById("want-count").textContent = "0";
+    document.getElementById("have-count").textContent = "0";
+    document.getElementById("read-count").textContent = "0";
+    return;
+  }
+  const counts = await getCommunityCountsForBook(state.book.id);
+  document.getElementById("want-count").textContent = counts.want_count;
+  document.getElementById("have-count").textContent = counts.have_count;
+  document.getElementById("read-count").textContent = counts.read_count;
+}
+
+async function refreshReviewsSection() {
+  const formCard = document.getElementById("review-form-card");
+  const listEl = document.getElementById("reviews-list");
+
+  if (!state.currentUser) {
+    formCard.innerHTML = `<p class="text-muted">Please <a href="login.html?redirect=book.html">log in</a> to leave a review.</p>`;
+  } else {
+    state.myReview = state.book ? await getMyReviewForBook(state.book.id) : null;
+    renderReviewForm(formCard);
+  }
+
+  if (!state.book) {
+    listEl.innerHTML = `<p class="text-muted">No reviews yet. Be the first to add this book and leave one!</p>`;
+    return;
+  }
+
+  const reviews = await getReviewsForBook(state.book.id);
+  if (reviews.length === 0) {
+    listEl.innerHTML = `<p class="text-muted">No reviews yet. Be the first to leave one!</p>`;
+    return;
+  }
+
+  listEl.innerHTML = reviews
+    .map((r) => {
+      const author = r.profiles ? r.profiles.display_name || r.profiles.username : "A reader";
+      const isMine = state.currentUser && r.user_id === state.currentUser.id;
+      return `
+        <div class="review">
+          <div class="review-header">
+            <div class="review-meta">
+              ${r.rating ? starsHtml(r.rating) : ""}
+              <span class="review-author">${escapeHtml(author)}</span>
+              <span class="review-date">${formatDate(r.created_at)}</span>
+            </div>
+            ${isMine ? `<button class="btn btn-ghost btn-sm" onclick="deleteMyReview()">Delete</button>` : ""}
+          </div>
+          ${r.review ? `<p>${escapeHtml(r.review)}</p>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderReviewForm(formCard) {
+  if (!state.book) {
+    formCard.innerHTML = `<p class="text-muted">Add this book to your library above (Get It / Got It / Read It) to leave a review.</p>`;
+    return;
+  }
+
+  const existing = state.myReview;
+  const existingRating = existing ? existing.rating || 0 : 0;
+  const existingText = existing ? existing.review || "" : "";
+
+  formCard.innerHTML = `
+    <h3 style="margin-bottom:12px;">${existing ? "Your Review" : "Leave a Review"}</h3>
+    <div id="review-alert" class="hidden"></div>
+    <div class="star-picker" id="star-picker">
+      ${[1, 2, 3, 4, 5]
+        .map((n) => `<span data-value="${n}" class="${n <= existingRating ? "filled" : ""}">★</span>`)
+        .join("")}
+    </div>
+    <div class="form-group">
+      <textarea id="review-text" rows="4" placeholder="What did you think of this book? (optional)">${escapeHtml(existingText)}</textarea>
+    </div>
+    <div class="row gap-sm">
+      <button class="btn btn-primary" id="save-review-btn">${existing ? "Update Review" : "Submit Review"}</button>
+      ${existing ? `<button class="btn btn-ghost" id="delete-review-btn">Delete</button>` : ""}
+    </div>
+  `;
+
+  let selectedRating = existingRating;
+  const stars = formCard.querySelectorAll("#star-picker span");
+  stars.forEach((star) => {
+    star.addEventListener("click", () => {
+      selectedRating = Number(star.getAttribute("data-value"));
+      stars.forEach((s) => s.classList.toggle("filled", Number(s.getAttribute("data-value")) <= selectedRating));
+    });
+  });
+
+  formCard.querySelector("#save-review-btn").addEventListener("click", async () => {
+    const alertBox = formCard.querySelector("#review-alert");
+    clearAlert(alertBox);
+    const text = formCard.querySelector("#review-text").value;
+
+    const { error } = await saveReview(state.book.id, selectedRating || null, text);
+    if (error) {
+      showAlert(alertBox, error, "error");
+      return;
+    }
+    showToast("Review saved. Thank you!", "success");
+    await refreshReviewsSection();
+  });
+
+  const deleteBtn = formCard.querySelector("#delete-review-btn");
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", async () => {
+      const { error } = await deleteReview(state.book.id);
+      if (error) {
+        showToast(error, "error");
+        return;
+      }
+      showToast("Review deleted.", "success");
+      await refreshReviewsSection();
+    });
+  }
+}
+
+async function deleteMyReview() {
+  if (!state.book) return;
+  const { error } = await deleteReview(state.book.id);
+  if (error) {
+    showToast(error, "error");
+    return;
+  }
+  showToast("Review deleted.", "success");
+  await refreshReviewsSection();
+}
+</script>
+</body>
+</html>

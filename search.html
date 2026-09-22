@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search Books — GetIt GotIt ReadIt</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container">
+    <h1>Search Books</h1>
+    <p class="text-muted">Search Open Library's full catalogue by title, author, or ISBN.</p>
+
+    <form id="search-form" class="row gap-sm" style="margin-bottom:24px; flex-wrap:wrap;">
+      <input type="search" id="search-input" placeholder="Search books by title, author or ISBN"
+             style="flex:1; min-width:220px; padding:11px 16px; border:1.5px solid var(--color-border); border-radius:999px; outline:none;">
+      <select id="search-mode" style="padding:11px 12px; border:1.5px solid var(--color-border); border-radius:999px; background:#fff;">
+        <option value="keyword">Keyword</option>
+        <option value="title">Title</option>
+        <option value="author">Author</option>
+        <option value="isbn">ISBN</option>
+      </select>
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+
+    <div id="search-status"></div>
+    <div id="search-results"></div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const form = document.getElementById("search-form");
+  const input = document.getElementById("search-input");
+  const modeSelect = document.getElementById("search-mode");
+
+  const initialQuery = getQueryParam("q");
+  const initialMode = getQueryParam("mode");
+  if (initialQuery) {
+    input.value = initialQuery;
+    if (initialMode) modeSelect.value = initialMode;
+    runSearch(initialQuery, modeSelect.value);
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (!q) return;
+    const mode = modeSelect.value;
+    history.replaceState(null, "", `search.html?q=${encodeURIComponent(q)}&mode=${mode}`);
+    runSearch(q, mode);
+  });
+});
+
+async function runSearch(query, mode) {
+  const statusEl = document.getElementById("search-status");
+  const resultsEl = document.getElementById("search-results");
+  resultsEl.innerHTML = "";
+  statusEl.innerHTML = '<div class="spinner"></div>';
+
+  const { results, error } = await searchOpenLibrary(query, mode);
+
+  if (error) {
+    statusEl.innerHTML = `<div class="empty-state">${escapeHtml(error)}</div>`;
+    return;
+  }
+
+  statusEl.innerHTML = "";
+  renderBookGrid(resultsEl, results, { emptyMessage: "No books found. Try a different search." });
+}
+</script>
+</body>
+</html>

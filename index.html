@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GetIt GotIt ReadIt — Your books. Your list. Your next read.</title>
+<meta name="description" content="Track the books you want, own, and have read. Search, save, and share your reading with GetIt GotIt ReadIt.">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container">
+
+    <section class="hero">
+      <h1>GetIt GotIt ReadIt</h1>
+      <p class="tagline">Get it. Got it. Read it.</p>
+      <form id="hero-search-form" class="search-bar" role="search">
+        <input type="search" id="hero-search-input" placeholder="Search books by title, author or ISBN" aria-label="Search books" required>
+        <button type="submit" class="btn btn-primary">Search</button>
+      </form>
+      <div class="hero-actions">
+        <a href="search.html" class="btn btn-secondary">Search Books</a>
+        <a href="my-books.html" class="btn btn-secondary">My Books</a>
+        <a href="signup.html" class="btn btn-primary" id="hero-signup-link">Log In / Sign Up</a>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h2>Popular in the Community</h2>
+      </div>
+      <div id="popular-books"><div class="spinner"></div></div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h2>Recently Added</h2>
+      </div>
+      <div id="recent-books"><div class="spinner"></div></div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h2>Recently Read</h2>
+      </div>
+      <div id="recently-read-books"><div class="spinner"></div></div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.
+  </div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  document.getElementById("hero-search-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = document.getElementById("hero-search-input").value.trim();
+    if (q) {
+      window.location.href = `search.html?q=${encodeURIComponent(q)}`;
+    }
+  });
+
+  // Adjust the hero CTA if already logged in.
+  const user = await getCurrentUser();
+  const heroSignupLink = document.getElementById("hero-signup-link");
+  if (user && heroSignupLink) {
+    heroSignupLink.textContent = "Go to My Books";
+    heroSignupLink.href = "my-books.html";
+  }
+
+  loadHomepageSections();
+});
+
+async function loadHomepageSections() {
+  const popularEl = document.getElementById("popular-books");
+  const recentEl = document.getElementById("recent-books");
+  const readEl = document.getElementById("recently-read-books");
+
+  try {
+    const [popular, recent, recentlyRead] = await Promise.all([
+      getPopularBooks(10),
+      getRecentlyAddedBooks(10),
+      getRecentlyReadBooks(10),
+    ]);
+
+    renderBookGrid(popularEl, popular, {
+      emptyMessage: "No community activity yet — be the first to add a book!",
+    });
+    renderBookGrid(recentEl, recent, {
+      emptyMessage: "No books added yet. Try searching for one!",
+    });
+    renderBookGrid(readEl, recentlyRead, {
+      emptyMessage: "No one has marked a book as read yet.",
+    });
+  } catch (err) {
+    console.error("Failed to load homepage sections:", err);
+    [popularEl, recentEl, readEl].forEach((el) => {
+      if (el) el.innerHTML = '<div class="empty-state">Couldn\'t load this right now. Please refresh the page.</div>';
+    });
+  }
+}
+</script>
+</body>
+</html>
