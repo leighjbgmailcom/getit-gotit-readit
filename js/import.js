@@ -91,28 +91,9 @@ function mapImportStatus(raw) {
   return null;
 }
 
-/** Small deterministic string hash (djb2), used to build stable synthetic ids. */
-function stableHash(str) {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
-  }
-  return hash.toString(36);
-}
-
-/**
- * Build a stable synthetic "openlibrary_work_id" for a book that didn't
- * come from a live Open Library lookup, so importing the same file
- * twice updates the same cached row instead of creating duplicates.
- */
-function makeImportWorkId(author, title) {
-  const norm = `${author.trim().toLowerCase()}|${title.trim().toLowerCase()}`;
-  const slug = norm
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  return `csv-${slug}-${stableHash(norm)}`;
-}
+// stableHash() and makeImportWorkId() moved to books.js, since search.html
+// also needs to compute the same synthetic id to recognize imported books
+// in search results (they don't have a real Open Library work id).
 
 /**
  * Read rows from parsed CSV objects and normalize them into unique,

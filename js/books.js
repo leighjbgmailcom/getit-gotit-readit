@@ -5,6 +5,32 @@
 // and each user's personal tracking (`user_books`).
 // =====================================================================
 
+/** Small deterministic string hash (djb2), used to build stable synthetic ids. */
+function stableHash(str) {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+/**
+ * Build the same stable synthetic "openlibrary_work_id" the CSV importer
+ * (js/import.js) uses for a book that didn't come from a live Open
+ * Library lookup. Also used by search.html to recognize an imported
+ * book in live search results, which only carry the *real* Open
+ * Library work id — imported books need to be matched by this
+ * title+author formula instead, since they were never looked up live.
+ */
+function makeImportWorkId(author, title) {
+  const norm = `${(author || "").trim().toLowerCase()}|${(title || "").trim().toLowerCase()}`;
+  const slug = norm
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return `csv-${slug}-${stableHash(norm)}`;
+}
+
 /**
  * Get the local `books` cache row for an Open Library work, creating
  * it if this is the first time anyone on GetIt GotIt ReadIt has
@@ -99,26 +125,46 @@ async function updateBookCover(bookId, coverUrl) {
 }
 
 /**
- * For a batch of Open Library work ids (e.g. a page of search results),
- * find which ones the current user already has in their library and
- * with what status. Used to show "already tagged" badges and filters
- * on the Search page. Returns a Map of openlibrary_work_id -> status
- * ("want"/"have"/"read"); work ids with no entry are simply absent
- * from the map. Safe to call while logged out (returns an empty map).
+ * For a batch of live Open Library search results, find which ones the
+ * current user already has in their library and with what status. Used
+ * to show "already tagged" badges and filters on the Search page.
+ *
+ * Checks TWO possible ids per result: the result's real Open Library
+ * work id, AND the synthetic id a CSV-imported version of that same
+ * book would have (see makeImportWorkId) — imported books were never
+ * looked up live, so they only exist under that synthetic id, and
+ * would otherwise never show as "already in your library" here.
+ *
+ * @param {Array<{openlibrary_work_id: string, title: string, author: string}>} results
+ * @returns {Promise<Map<string, string>>} result's openlibrary_work_id -> status ("want"/"have"/"read")
  */
-async function getMyStatusesForWorkIds(workIds) {
+async function getMyStatusesForSearchResults(results) {
   const map = new Map();
   const client = getSupabaseClient();
-  if (!client || !workIds || workIds.length === 0) return map;
+  if (!client || !results || results.length === 0) return map;
 
   const user = await getCurrentUser();
   if (!user) return map;
 
-  // Step 1: which of these work ids are even cached locally yet?
+  // Build every candidate id we should check, and remember which
+  // result(s) each candidate id belongs to.
+  const idToResultKeys = new Map(); // candidateId -> Set of result.openlibrary_work_id
+  const allCandidateIds = new Set();
+
+  for (const r of results) {
+    const candidates = [r.openlibrary_work_id, makeImportWorkId(r.author, r.title)];
+    for (const id of candidates) {
+      allCandidateIds.add(id);
+      if (!idToResultKeys.has(id)) idToResultKeys.set(id, new Set());
+      idToResultKeys.get(id).add(r.openlibrary_work_id);
+    }
+  }
+
+  // Step 1: which of these candidate ids are cached locally?
   const { data: cachedBooks, error: booksError } = await client
     .from("books")
     .select("id, openlibrary_work_id")
-    .in("openlibrary_work_id", workIds);
+    .in("openlibrary_work_id", Array.from(allCandidateIds));
 
   if (booksError) {
     console.error("Failed to look up cached books for status check:", booksError);
@@ -126,7 +172,7 @@ async function getMyStatusesForWorkIds(workIds) {
   }
   if (!cachedBooks || cachedBooks.length === 0) return map;
 
-  const bookIdToWorkId = new Map(cachedBooks.map((b) => [b.id, b.openlibrary_work_id]));
+  const bookIdToCandidateId = new Map(cachedBooks.map((b) => [b.id, b.openlibrary_work_id]));
   const bookIds = cachedBooks.map((b) => b.id);
 
   // Step 2: of those, which does the current user have a status for?
@@ -142,8 +188,12 @@ async function getMyStatusesForWorkIds(workIds) {
   }
 
   for (const row of myRows) {
-    const workId = bookIdToWorkId.get(row.book_id);
-    if (workId) map.set(workId, row.status);
+    const candidateId = bookIdToCandidateId.get(row.book_id);
+    const resultKeys = idToResultKeys.get(candidateId);
+    if (!resultKeys) continue;
+    for (const resultKey of resultKeys) {
+      map.set(resultKey, row.status);
+    }
   }
   return map;
 }

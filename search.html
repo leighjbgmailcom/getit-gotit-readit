@@ -147,7 +147,7 @@ async function runSearch(query, mode) {
   // any), so we can show "already in your library" badges and let
   // them filter/group results by status.
   if (searchUser) {
-    const statusMap = await getMyStatusesForWorkIds(results.map((r) => r.openlibrary_work_id));
+    const statusMap = await getMyStatusesForSearchResults(results);
     results.forEach((r) => {
       r.myStatus = statusMap.get(r.openlibrary_work_id) || null;
     });
