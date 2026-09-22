@@ -781,3 +781,62 @@ button, input, textarea, select {
   gap: 8px;
   margin-top: 20px;
 }
+
+/* ---------------------------------------------------------------------
+   Compare-covers dialog (Search page "possible match" confirmation)
+   --------------------------------------------------------------------- */
+.compare-covers {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin: 16px 0;
+}
+.compare-cover-col {
+  flex: 1;
+  max-width: 160px;
+  text-align: center;
+}
+.compare-cover-col img,
+.compare-cover-col .book-cover-placeholder {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+.compare-cover-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.compare-cover-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-top: 6px;
+}
+.compare-cover-author {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.possible-match-note {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 6px 8px 2px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.possible-match-note button {
+  background: none;
+  border: none;
+  color: var(--color-accent-dark);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.78rem;
+  text-decoration: underline;
+}

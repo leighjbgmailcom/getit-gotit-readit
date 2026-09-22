@@ -125,77 +125,110 @@ async function updateBookCover(bookId, coverUrl) {
 }
 
 /**
- * For a batch of live Open Library search results, find which ones the
- * current user already has in their library and with what status. Used
- * to show "already tagged" badges and filters on the Search page.
- *
- * Checks TWO possible ids per result: the result's real Open Library
- * work id, AND the synthetic id a CSV-imported version of that same
- * book would have (see makeImportWorkId) — imported books were never
- * looked up live, so they only exist under that synthetic id, and
- * would otherwise never show as "already in your library" here.
- *
- * @param {Array<{openlibrary_work_id: string, title: string, author: string}>} results
- * @returns {Promise<Map<string, string>>} result's openlibrary_work_id -> status ("want"/"have"/"read")
+ * Strip accents, casing, and punctuation down to bare words for
+ * comparing titles/authors that may be formatted slightly differently
+ * between a spreadsheet import and Open Library's own text (smart
+ * quotes vs straight quotes, "&" vs "and", stray colons, etc).
  */
-async function getMyStatusesForSearchResults(results) {
-  const map = new Map();
+function normalizeForMatch(str) {
+  return (str || "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "") // strip accents
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Looser than normalizeForMatch: also drops a subtitle or series/edition
+ * annotation after the first ":" or "(" — e.g. "Gone Girl: A Novel" and
+ * "Gone Girl (Movie Tie-In)" both become "gone girl". Used only for
+ * *suggesting* a possible match, never for auto-confirming one, since
+ * it's loose enough to occasionally conflate two different books.
+ */
+function normalizeLoose(str) {
+  const cut = (str || "").split(/[:(]/)[0];
+  return normalizeForMatch(cut);
+}
+
+function authorsLikelyMatch(a, b) {
+  const na = normalizeForMatch(a);
+  const nb = normalizeForMatch(b);
+  if (!na || !nb) return true; // unknown author on either side — don't let it block a title match
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+/**
+ * Fetch the current user's whole library (every status) with just the
+ * fields needed to fuzzy-match it against search results: title,
+ * author, cover, and internal id. One query, reused across all results
+ * on the page rather than a lookup per result.
+ */
+async function getMyLibraryForMatching() {
   const client = getSupabaseClient();
-  if (!client || !results || results.length === 0) return map;
-
+  if (!client) return [];
   const user = await getCurrentUser();
-  if (!user) return map;
+  if (!user) return [];
 
-  // Build every candidate id we should check, and remember which
-  // result(s) each candidate id belongs to.
-  const idToResultKeys = new Map(); // candidateId -> Set of result.openlibrary_work_id
-  const allCandidateIds = new Set();
-
-  for (const r of results) {
-    const candidates = [r.openlibrary_work_id, makeImportWorkId(r.author, r.title)];
-    for (const id of candidates) {
-      allCandidateIds.add(id);
-      if (!idToResultKeys.has(id)) idToResultKeys.set(id, new Set());
-      idToResultKeys.get(id).add(r.openlibrary_work_id);
-    }
-  }
-
-  // Step 1: which of these candidate ids are cached locally?
-  const { data: cachedBooks, error: booksError } = await client
-    .from("books")
-    .select("id, openlibrary_work_id")
-    .in("openlibrary_work_id", Array.from(allCandidateIds));
-
-  if (booksError) {
-    console.error("Failed to look up cached books for status check:", booksError);
-    return map;
-  }
-  if (!cachedBooks || cachedBooks.length === 0) return map;
-
-  const bookIdToCandidateId = new Map(cachedBooks.map((b) => [b.id, b.openlibrary_work_id]));
-  const bookIds = cachedBooks.map((b) => b.id);
-
-  // Step 2: of those, which does the current user have a status for?
-  const { data: myRows, error: statusError } = await client
+  const { data, error } = await client
     .from("user_books")
-    .select("book_id, status")
-    .eq("user_id", user.id)
-    .in("book_id", bookIds);
+    .select("status, books(id, title, author, cover_url, openlibrary_work_id)")
+    .eq("user_id", user.id);
 
-  if (statusError) {
-    console.error("Failed to look up your statuses for search results:", statusError);
-    return map;
+  if (error) {
+    console.error("Failed to load your library for search matching:", error);
+    return [];
   }
 
-  for (const row of myRows) {
-    const candidateId = bookIdToCandidateId.get(row.book_id);
-    const resultKeys = idToResultKeys.get(candidateId);
-    if (!resultKeys) continue;
-    for (const resultKey of resultKeys) {
-      map.set(resultKey, row.status);
+  return (data || [])
+    .filter((row) => row.books)
+    .map((row) => ({
+      bookId: row.books.id,
+      title: row.books.title,
+      author: row.books.author,
+      coverUrl: row.books.cover_url,
+      workId: row.books.openlibrary_work_id,
+      status: row.status,
+    }));
+}
+
+/**
+ * Compare a page of live search results against the user's library and
+ * tag each result with:
+ *   - myStatus / matchedEntry: a CONFIRMED match (title+author line up
+ *     once normalized) — shown as an "already tagged" badge, same as
+ *     before.
+ *   - possibleMatch: a LOOSER match (subtitle/annotation ignored) that
+ *     isn't confident enough to auto-tag, but worth surfacing as "you
+ *     might already have this" with a compare-and-confirm prompt.
+ * Mutates and returns the same result objects for convenience.
+ */
+function matchSearchResultsToLibrary(results, libraryEntries) {
+  for (const r of results) {
+    r.myStatus = null;
+    r.matchedEntry = null;
+    r.possibleMatch = null;
+
+    const rStrict = normalizeForMatch(r.title);
+    const rLoose = normalizeLoose(r.title);
+
+    for (const entry of libraryEntries) {
+      if (!authorsLikelyMatch(r.author, entry.author)) continue;
+
+      if (normalizeForMatch(entry.title) === rStrict) {
+        r.myStatus = entry.status;
+        r.matchedEntry = entry;
+        r.possibleMatch = null;
+        break; // confirmed match wins outright, stop looking
+      }
+      if (!r.possibleMatch && normalizeLoose(entry.title) === rLoose) {
+        r.possibleMatch = entry;
+      }
     }
   }
-  return map;
+  return results;
 }
 
 /**
@@ -225,7 +258,13 @@ async function confirmBookCoverMatch(bookId, match) {
   if (!client) return { error: "Setup incomplete. Please try again later." };
 
   const current = await getBookById(bookId);
-  const updates = { cover_url: match.cover_url };
+  const updates = {};
+
+  // Only set the cover if the match actually has one — never overwrite
+  // an existing cover with a blank value.
+  if (match.cover_url) {
+    updates.cover_url = match.cover_url;
+  }
 
   // Only backfill the year if we don't already have one — never
   // overwrite a value the book already had.
@@ -247,6 +286,13 @@ async function confirmBookCoverMatch(bookId, match) {
     if (!conflict) {
       updates.openlibrary_work_id = match.openlibrary_work_id;
     }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    // Nothing new to save (no cover, year already known, id already real
+    // or conflicting) — just confirm the book as-is rather than sending
+    // an empty update.
+    return { book: current, error: null };
   }
 
   const { data, error } = await client.from("books").update(updates).eq("id", bookId).select().single();

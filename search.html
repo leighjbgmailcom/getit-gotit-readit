@@ -143,16 +143,17 @@ async function runSearch(query, mode) {
 
   statusEl.innerHTML = "";
 
-  // Tag each result with the current user's status for that book (if
-  // any), so we can show "already in your library" badges and let
-  // them filter/group results by status.
+  // Tag each result with the current user's status for that book (a
+  // confirmed match), or a "possibleMatch" for a close-but-not-exact
+  // title match (e.g. a subtitle difference) — see matchSearchResultsToLibrary.
   if (searchUser) {
-    const statusMap = await getMyStatusesForSearchResults(results);
-    results.forEach((r) => {
-      r.myStatus = statusMap.get(r.openlibrary_work_id) || null;
-    });
+    const myLibrary = await getMyLibraryForMatching();
+    matchSearchResultsToLibrary(results, myLibrary);
   } else {
-    results.forEach((r) => (r.myStatus = null));
+    results.forEach((r) => {
+      r.myStatus = null;
+      r.possibleMatch = null;
+    });
   }
 
   lastResults = results;
@@ -205,12 +206,100 @@ function renderGroupedResults() {
       <div class="section">
         <div class="section-header"><h2>${escapeHtml(GROUP_LABELS[key])} <span class="tab-count">${groups[key].length}</span></h2></div>
         <div class="book-grid">
-          ${groups[key].map((book) => renderBookCard(book, { status: book.myStatus })).join("")}
+          ${groups[key].map((book) => renderResultCard(book)).join("")}
         </div>
       </div>
     `
     )
     .join("");
+
+  resultsEl.querySelectorAll(".compare-match-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const result = lastResults.find((r) => r.openlibrary_work_id === btn.getAttribute("data-work-id"));
+      if (result && result.possibleMatch) openCompareModal(result);
+    });
+  });
+}
+
+/** A search result card, with an extra "possibly already have this?" note when applicable. */
+function renderResultCard(book) {
+  const cardHtml = renderBookCard(book, { status: book.myStatus });
+  let noteHtml = "";
+  if (!book.myStatus && book.possibleMatch) {
+    noteHtml = `
+      <div class="possible-match-note">
+        Might already have this as "${escapeHtml(book.possibleMatch.title)}"?
+        <button type="button" class="compare-match-btn" data-work-id="${escapeHtml(book.openlibrary_work_id)}">Compare</button>
+      </div>
+    `;
+  }
+  return `<div>${cardHtml}${noteHtml}</div>`;
+}
+
+/** Side-by-side cover comparison dialog for a "possible match" result. */
+function openCompareModal(result) {
+  const entry = result.possibleMatch;
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box" style="max-width:420px;">
+      <h3 style="margin-bottom:4px;">Is this the same book?</h3>
+      <p class="text-muted" style="font-size:0.85rem; margin-bottom:0;">We noticed a close title match already in your library.</p>
+      <div class="compare-covers">
+        <div class="compare-cover-col">
+          <div class="compare-cover-label">Search result</div>
+          ${result.cover_url ? `<img src="${escapeHtml(result.cover_url)}" alt="">` : getCoverPlaceholderHtml()}
+          <div class="compare-cover-title">${escapeHtml(result.title)}</div>
+          <div class="compare-cover-author">${escapeHtml(result.author || "")}</div>
+        </div>
+        <div class="compare-cover-col">
+          <div class="compare-cover-label">In your library &middot; ${escapeHtml(STATUS_LABELS[entry.status])}</div>
+          ${entry.coverUrl ? `<img src="${escapeHtml(entry.coverUrl)}" alt="">` : getCoverPlaceholderHtml()}
+          <div class="compare-cover-title">${escapeHtml(entry.title)}</div>
+          <div class="compare-cover-author">${escapeHtml(entry.author || "")}</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="compare-no-btn" type="button">No, different book</button>
+        <button class="btn btn-primary" id="compare-yes-btn" type="button">Yes, same book</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  overlay.querySelector("#compare-no-btn").addEventListener("click", close);
+
+  overlay.querySelector("#compare-yes-btn").addEventListener("click", async () => {
+    const yesBtn = overlay.querySelector("#compare-yes-btn");
+    yesBtn.disabled = true;
+    yesBtn.textContent = "Linking…";
+
+    const { error } = await confirmBookCoverMatch(entry.bookId, {
+      openlibrary_work_id: result.openlibrary_work_id,
+      cover_url: result.cover_url,
+      first_publish_year: result.first_publish_year,
+    });
+
+    if (error) {
+      showToast(error, "error");
+      yesBtn.disabled = false;
+      yesBtn.textContent = "Yes, same book";
+      return;
+    }
+
+    close();
+    showToast("Linked! This will show as already tagged from now on.", "success");
+
+    result.myStatus = entry.status;
+    result.matchedEntry = entry;
+    result.possibleMatch = null;
+    renderGroupedResults();
+  });
 }
 </script>
 </body>
