@@ -14,7 +14,7 @@
 // app has no server, so it should never appear anywhere in this repo).
 // =====================================================================
 
-const SUPABASE_URL = "https://leighjbgmailcom.github.io/getit-gotit-readit";
+const SUPABASE_URL = "https://ahzrrcpgxievpqydturc.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_d9UekObI3laAv-7Z7rX2aA_4MbeGpdt";
 
 // After login/signup, users are sent here.
