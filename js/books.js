@@ -99,6 +99,56 @@ async function updateBookCover(bookId, coverUrl) {
 }
 
 /**
+ * For a batch of Open Library work ids (e.g. a page of search results),
+ * find which ones the current user already has in their library and
+ * with what status. Used to show "already tagged" badges and filters
+ * on the Search page. Returns a Map of openlibrary_work_id -> status
+ * ("want"/"have"/"read"); work ids with no entry are simply absent
+ * from the map. Safe to call while logged out (returns an empty map).
+ */
+async function getMyStatusesForWorkIds(workIds) {
+  const map = new Map();
+  const client = getSupabaseClient();
+  if (!client || !workIds || workIds.length === 0) return map;
+
+  const user = await getCurrentUser();
+  if (!user) return map;
+
+  // Step 1: which of these work ids are even cached locally yet?
+  const { data: cachedBooks, error: booksError } = await client
+    .from("books")
+    .select("id, openlibrary_work_id")
+    .in("openlibrary_work_id", workIds);
+
+  if (booksError) {
+    console.error("Failed to look up cached books for status check:", booksError);
+    return map;
+  }
+  if (!cachedBooks || cachedBooks.length === 0) return map;
+
+  const bookIdToWorkId = new Map(cachedBooks.map((b) => [b.id, b.openlibrary_work_id]));
+  const bookIds = cachedBooks.map((b) => b.id);
+
+  // Step 2: of those, which does the current user have a status for?
+  const { data: myRows, error: statusError } = await client
+    .from("user_books")
+    .select("book_id, status")
+    .eq("user_id", user.id)
+    .in("book_id", bookIds);
+
+  if (statusError) {
+    console.error("Failed to look up your statuses for search results:", statusError);
+    return map;
+  }
+
+  for (const row of myRows) {
+    const workId = bookIdToWorkId.get(row.book_id);
+    if (workId) map.set(workId, row.status);
+  }
+  return map;
+}
+
+/**
  * Apply a user-confirmed Open Library match to a cached book: fills in
  * the cover (and the publish year, if we didn't already have one).
  * Used by the "confirm a cover" prompt on the Book Details page —

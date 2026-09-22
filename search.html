@@ -53,6 +53,17 @@
     </form>
 
     <div id="search-status"></div>
+
+    <div id="filter-bar" class="hidden" style="margin-bottom:20px;">
+      <p class="form-hint" style="margin-bottom:8px;">Show:</p>
+      <div class="status-buttons" id="filter-buttons">
+        <button class="btn-status active" data-status="none">New <span class="tab-count" id="filter-count-none">0</span></button>
+        <button class="btn-status active" data-status="want">Get It <span class="tab-count" id="filter-count-want">0</span></button>
+        <button class="btn-status active" data-status="have">Got It <span class="tab-count" id="filter-count-have">0</span></button>
+        <button class="btn-status active" data-status="read">Read It <span class="tab-count" id="filter-count-read">0</span></button>
+      </div>
+    </div>
+
     <div id="search-results"></div>
   </div>
 </main>
@@ -73,7 +84,16 @@
 <script src="js/profile.js"></script>
 <script src="js/app.js"></script>
 <script>
-document.addEventListener("DOMContentLoaded", () => {
+let lastResults = [];
+let activeFilters = { none: true, want: true, have: true, read: true };
+let searchUser = null;
+
+const GROUP_LABELS = { none: "New", want: "Get It", have: "Got It", read: "Read It" };
+const GROUP_ORDER = ["none", "want", "have", "read"];
+
+document.addEventListener("DOMContentLoaded", async () => {
+  searchUser = await getCurrentUser();
+
   const form = document.getElementById("search-form");
   const input = document.getElementById("search-input");
   const modeSelect = document.getElementById("search-mode");
@@ -94,23 +114,103 @@ document.addEventListener("DOMContentLoaded", () => {
     history.replaceState(null, "", `search.html?q=${encodeURIComponent(q)}&mode=${mode}`);
     runSearch(q, mode);
   });
+
+  document.querySelectorAll("#filter-buttons .btn-status").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.getAttribute("data-status");
+      activeFilters[key] = !activeFilters[key];
+      btn.classList.toggle("active", activeFilters[key]);
+      renderGroupedResults();
+    });
+  });
 });
 
 async function runSearch(query, mode) {
   const statusEl = document.getElementById("search-status");
   const resultsEl = document.getElementById("search-results");
+  const filterBar = document.getElementById("filter-bar");
   resultsEl.innerHTML = "";
+  filterBar.classList.add("hidden");
   statusEl.innerHTML = '<div class="spinner"></div>';
 
   const { results, error } = await searchOpenLibrary(query, mode);
 
   if (error) {
     statusEl.innerHTML = `<div class="empty-state">${escapeHtml(error)}</div>`;
+    lastResults = [];
     return;
   }
 
   statusEl.innerHTML = "";
-  renderBookGrid(resultsEl, results, { emptyMessage: "No books found. Try a different search." });
+
+  // Tag each result with the current user's status for that book (if
+  // any), so we can show "already in your library" badges and let
+  // them filter/group results by status.
+  if (searchUser) {
+    const statusMap = await getMyStatusesForWorkIds(results.map((r) => r.openlibrary_work_id));
+    results.forEach((r) => {
+      r.myStatus = statusMap.get(r.openlibrary_work_id) || null;
+    });
+  } else {
+    results.forEach((r) => (r.myStatus = null));
+  }
+
+  lastResults = results;
+
+  if (searchUser && results.length > 0) {
+    filterBar.classList.remove("hidden");
+    // Reset filters to "show everything" on each new search.
+    activeFilters = { none: true, want: true, have: true, read: true };
+    document.querySelectorAll("#filter-buttons .btn-status").forEach((btn) => btn.classList.add("active"));
+  }
+
+  renderGroupedResults();
+}
+
+function renderGroupedResults() {
+  const resultsEl = document.getElementById("search-results");
+
+  if (lastResults.length === 0) {
+    resultsEl.innerHTML = "";
+    return;
+  }
+
+  // Not logged in (or nothing tagged yet): just show the plain grid,
+  // filters/grouping aren't meaningful without any statuses to show.
+  if (!searchUser) {
+    renderBookGrid(resultsEl, lastResults, { emptyMessage: "No books found. Try a different search." });
+    return;
+  }
+
+  const groups = { none: [], want: [], have: [], read: [] };
+  for (const r of lastResults) {
+    groups[r.myStatus || "none"].push(r);
+  }
+
+  GROUP_ORDER.forEach((key) => {
+    const countEl = document.getElementById(`filter-count-${key}`);
+    if (countEl) countEl.textContent = groups[key].length;
+  });
+
+  const visibleGroups = GROUP_ORDER.filter((key) => activeFilters[key] && groups[key].length > 0);
+
+  if (visibleGroups.length === 0) {
+    resultsEl.innerHTML = `<div class="empty-state">No results match the selected filters.</div>`;
+    return;
+  }
+
+  resultsEl.innerHTML = visibleGroups
+    .map(
+      (key) => `
+      <div class="section">
+        <div class="section-header"><h2>${escapeHtml(GROUP_LABELS[key])} <span class="tab-count">${groups[key].length}</span></h2></div>
+        <div class="book-grid">
+          ${groups[key].map((book) => renderBookCard(book, { status: book.myStatus })).join("")}
+        </div>
+      </div>
+    `
+    )
+    .join("");
 }
 </script>
 </body>

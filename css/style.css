@@ -273,6 +273,7 @@ button, input, textarea, select {
   cursor: pointer;
   text-transform: uppercase;
 }
+.btn-status[data-status="none"].active { background: var(--color-border); border-color: var(--color-text-muted); color: var(--color-text); }
 .btn-status[data-status="want"].active { background: var(--color-want-soft); border-color: var(--color-want); color: var(--color-want); }
 .btn-status[data-status="have"].active { background: var(--color-have-soft); border-color: var(--color-have); color: var(--color-have); }
 .btn-status[data-status="read"].active { background: var(--color-read-soft); border-color: var(--color-read); color: var(--color-read); }
