@@ -124,6 +124,9 @@ function renderTab() {
             <button class="btn-status btn-sm ${row.status === "have" ? "active" : ""}" data-status="have">Got It</button>
             <button class="btn-status btn-sm ${row.status === "read" ? "active" : ""}" data-status="read">Read It</button>
           </div>
+          <div class="text-center" style="margin-top:4px;">
+            <button class="btn btn-ghost btn-sm remove-book-btn" data-book-id="${book.id}" data-book-title="${escapeHtml(book.title)}">Remove</button>
+          </div>
         </div>
       `;
     })
@@ -146,6 +149,26 @@ function renderTab() {
         updateCounts();
         renderTab();
       });
+    });
+  });
+
+  gridEl.querySelectorAll(".remove-book-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const bookId = btn.getAttribute("data-book-id");
+      const title = btn.getAttribute("data-book-title");
+      if (!confirm(`Remove "${title}" from your list? This won't affect anyone else's library.`)) return;
+
+      btn.disabled = true;
+      const { error } = await removeBookStatus(bookId);
+      if (error) {
+        showToast(error, "error");
+        btn.disabled = false;
+        return;
+      }
+      showToast("Removed from your list.", "success");
+      myBooks = await getMyBooksByStatus();
+      updateCounts();
+      renderTab();
     });
   });
 }

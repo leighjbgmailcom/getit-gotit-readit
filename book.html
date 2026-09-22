@@ -52,7 +52,10 @@
             <button class="btn-status" data-status="have">Got It</button>
             <button class="btn-status" data-status="read">Read It</button>
           </div>
-          <div id="status-hint" class="form-hint" style="margin-top:8px;"></div>
+          <div class="row" style="margin-top:8px; align-items:baseline; gap:10px;">
+            <div id="status-hint" class="form-hint"></div>
+            <button id="remove-status-btn" class="btn btn-ghost btn-sm hidden">Remove from my list</button>
+          </div>
         </div>
       </div>
 
@@ -347,6 +350,25 @@ function wireStatusButtons() {
       await refreshReviewsSection();
     });
   });
+
+  document.getElementById("remove-status-btn").addEventListener("click", async () => {
+    if (!state.book) return;
+    const removeBtn = document.getElementById("remove-status-btn");
+    removeBtn.disabled = true;
+
+    const { error } = await removeBookStatus(state.book.id);
+    removeBtn.disabled = false;
+
+    if (error) {
+      showToast(error, "error");
+      return;
+    }
+
+    state.myStatus = null;
+    updateStatusButtonsUI();
+    showToast("Removed from your list.", "success");
+    await refreshCommunityStats();
+  });
 }
 
 function updateStatusButtonsUI() {
@@ -356,8 +378,9 @@ function updateStatusButtonsUI() {
   });
   const hint = document.getElementById("status-hint");
   hint.textContent = state.myStatus
-    ? `You marked this as "${STATUS_LABELS[state.myStatus.status]}". Click another status to change it.`
+    ? `You marked this as "${STATUS_LABELS[state.myStatus.status]}". Click a status again to change it, or remove it.`
     : "";
+  document.getElementById("remove-status-btn").classList.toggle("hidden", !state.myStatus);
 }
 
 /** Make sure this book has a row in the `books` cache table, creating it if needed. */
