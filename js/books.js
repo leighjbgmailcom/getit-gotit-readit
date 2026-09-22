@@ -200,22 +200,52 @@ async function getMyStatusesForSearchResults(results) {
 
 /**
  * Apply a user-confirmed Open Library match to a cached book: fills in
- * the cover (and the publish year, if we didn't already have one).
- * Used by the "confirm a cover" prompt on the Book Details page —
- * deliberately does NOT change the book's openlibrary_work_id, so
- * existing user_books/reviews rows pointing at this book are untouched.
+ * the cover, backfills the publish year if we didn't have one, and —
+ * when safe — upgrades the book's identity from a synthetic (e.g.
+ * CSV-imported) id to the real Open Library work id the user just
+ * confirmed. That upgrade is what lets the book start matching by its
+ * real id in future searches, instead of relying on the fuzzier
+ * title+author fallback.
+ *
+ * Changing openlibrary_work_id doesn't touch any existing user_books
+ * or reviews rows — those reference the book's stable internal id
+ * (books.id), never openlibrary_work_id, so nobody's status or review
+ * is affected by the upgrade.
+ *
+ * The one thing that blocks the upgrade: if some *other* cached book
+ * row already has that real work id (e.g. someone else added the same
+ * book via live search, creating a separate row), we can't reuse it —
+ * that would violate the "one row per work id" uniqueness rule and
+ * would really require merging the two rows' statuses/reviews, which
+ * is beyond this MVP. In that case we still save the cover and year,
+ * just not the id upgrade.
  */
 async function confirmBookCoverMatch(bookId, match) {
   const client = getSupabaseClient();
   if (!client) return { error: "Setup incomplete. Please try again later." };
 
+  const current = await getBookById(bookId);
   const updates = { cover_url: match.cover_url };
-  if (match.first_publish_year) {
-    // Only backfill the year if we don't already have one — never
-    // overwrite a value the book already had.
-    const current = await getBookById(bookId);
-    if (current && !current.first_publish_year) {
-      updates.first_publish_year = match.first_publish_year;
+
+  // Only backfill the year if we don't already have one — never
+  // overwrite a value the book already had.
+  if (match.first_publish_year && current && !current.first_publish_year) {
+    updates.first_publish_year = match.first_publish_year;
+  }
+
+  // Try the id upgrade, unless this book already has a real (non-CSV)
+  // id, or some other row already owns the confirmed id.
+  const alreadyHasRealId = current && !current.openlibrary_work_id.startsWith("csv-");
+  if (!alreadyHasRealId && match.openlibrary_work_id) {
+    const { data: conflict } = await client
+      .from("books")
+      .select("id")
+      .eq("openlibrary_work_id", match.openlibrary_work_id)
+      .neq("id", bookId)
+      .maybeSingle();
+
+    if (!conflict) {
+      updates.openlibrary_work_id = match.openlibrary_work_id;
     }
   }
 
