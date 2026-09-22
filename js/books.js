@@ -98,6 +98,35 @@ async function updateBookCover(bookId, coverUrl) {
   return data;
 }
 
+/**
+ * Apply a user-confirmed Open Library match to a cached book: fills in
+ * the cover (and the publish year, if we didn't already have one).
+ * Used by the "confirm a cover" prompt on the Book Details page —
+ * deliberately does NOT change the book's openlibrary_work_id, so
+ * existing user_books/reviews rows pointing at this book are untouched.
+ */
+async function confirmBookCoverMatch(bookId, match) {
+  const client = getSupabaseClient();
+  if (!client) return { error: "Setup incomplete. Please try again later." };
+
+  const updates = { cover_url: match.cover_url };
+  if (match.first_publish_year) {
+    // Only backfill the year if we don't already have one — never
+    // overwrite a value the book already had.
+    const current = await getBookById(bookId);
+    if (current && !current.first_publish_year) {
+      updates.first_publish_year = match.first_publish_year;
+    }
+  }
+
+  const { data, error } = await client.from("books").update(updates).eq("id", bookId).select().single();
+  if (error) {
+    console.error("Failed to apply confirmed cover match:", error);
+    return { error: "Couldn't save that cover. Please try again." };
+  }
+  return { book: data, error: null };
+}
+
 /** Look up a cached book by its Open Library work id. */
 async function getBookByWorkId(workId) {
   const client = getSupabaseClient();

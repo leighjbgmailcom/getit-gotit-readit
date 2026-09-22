@@ -19,11 +19,20 @@ async function signUp(email, password, username) {
     };
   }
 
+  // Tell Supabase explicitly where the confirmation link should land,
+  // rather than relying on the "Site URL" set in the Supabase dashboard
+  // (which is easy to leave pointed at the wrong path). This must still
+  // match one of the "Redirect URLs" patterns configured in Supabase
+  // Authentication settings, or Supabase will silently fall back to the
+  // Site URL anyway.
+  const emailRedirectTo = new URL("login.html", window.location.href).toString();
+
   const { data, error } = await client.auth.signUp({
     email,
     password,
     options: {
       data: { username: cleanUsername, display_name: cleanUsername },
+      emailRedirectTo,
     },
   });
 

@@ -56,6 +56,17 @@
         </div>
       </div>
 
+      <div id="cover-match-panel" class="card card-pad hidden section" style="border-color:var(--color-accent);">
+        <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <h3 style="margin-bottom:4px;">We don't have a confirmed cover for this book</h3>
+            <p class="text-muted" style="font-size:0.88rem; margin-bottom:0;">Here's what Open Library found — is one of these it?</p>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="cover-match-dismiss">Not now</button>
+        </div>
+        <div id="cover-match-options" class="row gap-md" style="margin-top:14px; flex-wrap:wrap;"></div>
+      </div>
+
       <section class="section">
         <div class="section-header"><h2>About the Book</h2></div>
         <div class="card card-pad">
@@ -227,6 +238,79 @@ async function renderBookPage() {
 
   document.getElementById("page-spinner").classList.add("hidden");
   document.getElementById("book-content").classList.remove("hidden");
+
+  // Fire-and-forget: don't make the page wait on an Open Library lookup
+  // just to offer a cover suggestion for a book that's missing one.
+  maybeSuggestCoverMatches();
+}
+
+/**
+ * If this (cached) book has no confirmed cover, look up candidate
+ * matches on Open Library and let the user pick the right one. Common
+ * for books bulk-imported from a spreadsheet (see import.html), which
+ * are cached without a live Open Library match.
+ */
+async function maybeSuggestCoverMatches() {
+  // Requires login: confirming a cover writes to the shared book cache.
+  if (!state.currentUser || !state.book || state.book.cover_url) return;
+
+  const dismissKey = `ggr-cover-dismissed-${state.book.id}`;
+  try {
+    if (localStorage.getItem(dismissKey)) return;
+  } catch {
+    // Private browsing / blocked storage — just proceed without remembering dismissal.
+  }
+
+  const candidates = await searchOpenLibraryByTitleAuthor(state.book.title, state.book.author, 5);
+  if (candidates.length === 0) return;
+
+  const panel = document.getElementById("cover-match-panel");
+  const optionsEl = document.getElementById("cover-match-options");
+
+  optionsEl.innerHTML = candidates
+    .map(
+      (c, i) => `
+      <button class="cover-match-option" data-index="${i}" type="button">
+        <img src="${escapeHtml(c.cover_url)}" alt="Cover option: ${escapeHtml(c.title)}" loading="lazy">
+        <div class="cma-year">${escapeHtml(formatYear(c.first_publish_year))}</div>
+      </button>
+    `
+    )
+    .join("");
+
+  panel.classList.remove("hidden");
+
+  optionsEl.querySelectorAll(".cover-match-option").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const candidate = candidates[Number(btn.getAttribute("data-index"))];
+      btn.disabled = true;
+
+      const { book, error } = await confirmBookCoverMatch(state.book.id, candidate);
+      if (error) {
+        showToast(error, "error");
+        btn.disabled = false;
+        return;
+      }
+
+      state.book = book;
+      state.bookData = book;
+      document.getElementById("book-cover").innerHTML = `<img src="${escapeHtml(book.cover_url)}" alt="Cover of ${escapeHtml(book.title)}" onerror="this.parentElement.innerHTML = getCoverPlaceholderHtml();">`;
+      if (book.first_publish_year) {
+        document.getElementById("book-year").textContent = formatYear(book.first_publish_year);
+      }
+      panel.classList.add("hidden");
+      showToast("Cover updated. Thanks for confirming!", "success");
+    });
+  });
+
+  document.getElementById("cover-match-dismiss").addEventListener("click", () => {
+    panel.classList.add("hidden");
+    try {
+      localStorage.setItem(dismissKey, "1");
+    } catch {
+      // Best-effort only — no harm if this can't be remembered.
+    }
+  });
 }
 
 function wireStatusButtons() {

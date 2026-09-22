@@ -84,6 +84,45 @@ function normalizeSearchDoc(doc) {
 }
 
 /**
+ * Search Open Library by title AND author together (tighter matching
+ * than a general keyword search). Used to suggest candidate cover
+ * matches for a book that doesn't have a confirmed cover yet — e.g.
+ * one bulk-imported from a spreadsheet without going through a live
+ * Open Library lookup.
+ *
+ * @returns {Promise<Array>} up to `limit` normalized results (may be empty; never throws)
+ */
+async function searchOpenLibraryByTitleAuthor(title, author, limit = 5) {
+  const cleanTitle = (title || "").trim();
+  if (!cleanTitle) return [];
+
+  const params = new URLSearchParams();
+  params.set("title", cleanTitle);
+  if (author && author.trim() && author.trim().toLowerCase() !== "unknown author") {
+    params.set("author", author.trim());
+  }
+  params.set("limit", String(limit));
+  params.set(
+    "fields",
+    "key,title,author_name,first_publish_year,cover_i,cover_edition_key,isbn,edition_key"
+  );
+
+  try {
+    const res = await fetch(`${OPEN_LIBRARY_BASE}/search.json?${params.toString()}`);
+    if (!res.ok) throw new Error(`Open Library returned ${res.status}`);
+    const data = await res.json();
+    const docs = Array.isArray(data.docs) ? data.docs : [];
+    return docs
+      .filter((doc) => doc.key && (doc.cover_i || doc.cover_edition_key)) // only suggest candidates that actually have a cover
+      .slice(0, limit)
+      .map(normalizeSearchDoc);
+  } catch (err) {
+    console.error("Cover-match search failed:", err);
+    return [];
+  }
+}
+
+/**
  * Fetch extra detail for a single work (used on the Book Details page
  * for description text and a larger cover if we don't already have one).
  */

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Import Your Library — GetIt GotIt ReadIt</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container" style="max-width:640px;">
+    <h1>Import Your Library</h1>
+    <p class="text-muted">
+      Already keep a spreadsheet of your books? Import it here instead of adding
+      titles one at a time.
+    </p>
+
+    <div class="card card-pad">
+      <h3 style="margin-bottom:10px;">CSV format</h3>
+      <p class="text-muted" style="font-size:0.9rem;">
+        Your file needs a header row with at least these columns (extra columns are fine and ignored):
+      </p>
+      <div class="card-pad" style="background:var(--color-bg); border-radius:var(--radius-md); font-family:monospace; font-size:0.82rem; overflow-x:auto; margin-bottom:10px;">
+        Author, Book Title, Status, Year
+      </div>
+      <p class="text-muted" style="font-size:0.85rem;">
+        <strong>Status</strong> should be one of: <code>Get It</code>, <code>Got It</code>
+        (or <code>Got It - Paper</code> / <code>Got It - Kindle</code> / etc.), or <code>Read It</code>.
+        Rows missing a title or a recognizable status are skipped automatically.
+      </p>
+
+      <div id="import-alert" class="hidden"></div>
+
+      <form id="import-form">
+        <div class="form-group">
+          <label for="csv-file">CSV file</label>
+          <input type="file" id="csv-file" accept=".csv,text/csv" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="import-submit">Import</button>
+      </form>
+
+      <div id="import-progress" class="hidden" style="margin-top:16px;">
+        <div class="spinner" style="margin:16px auto;"></div>
+        <p id="import-progress-text" class="text-muted text-center"></p>
+      </div>
+
+      <div id="import-result" class="hidden" style="margin-top:16px;"></div>
+    </div>
+
+    <p class="text-muted" style="font-size:0.85rem; margin-top:16px;">
+      Note: imported books are cached directly from your file (title, author, year) rather
+      than matched against Open Library, so covers show as placeholders for now. Re-adding a
+      favorite later via <a href="search.html">Search</a> will pick up its real cover.
+    </p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/import.js"></script>
+<script src="js/app.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const user = await requireAuth();
+  if (!user) return;
+
+  const form = document.getElementById("import-form");
+  const alertBox = document.getElementById("import-alert");
+  const submitBtn = document.getElementById("import-submit");
+  const progressBox = document.getElementById("import-progress");
+  const progressText = document.getElementById("import-progress-text");
+  const resultBox = document.getElementById("import-result");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearAlert(alertBox);
+    resultBox.classList.add("hidden");
+
+    const fileInput = document.getElementById("csv-file");
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    submitBtn.disabled = true;
+    progressBox.classList.remove("hidden");
+
+    try {
+      const text = await file.text();
+      const result = await runCsvImport(text, (msg) => {
+        progressText.textContent = msg;
+      });
+
+      progressBox.classList.add("hidden");
+      resultBox.classList.remove("hidden");
+      resultBox.innerHTML = `
+        <div class="alert alert-success">
+          Import complete! Added/updated <strong>${result.booksImported}</strong> books
+          and set <strong>${result.statusesSet}</strong> statuses in your library.
+        </div>
+        <p class="text-muted" style="font-size:0.85rem;">
+          Parsed ${result.totalRows} rows total.
+          ${result.duplicatesCollapsed ? `${result.duplicatesCollapsed} duplicate rows collapsed. ` : ""}
+          ${result.skippedMissingTitle ? `${result.skippedMissingTitle} rows skipped (no title). ` : ""}
+          ${result.skippedMissingStatus ? `${result.skippedMissingStatus} rows skipped (no recognizable status).` : ""}
+        </p>
+        <a href="my-books.html" class="btn btn-primary" style="margin-top:8px;">View My Books</a>
+      `;
+      showToast("Import complete!", "success");
+    } catch (err) {
+      progressBox.classList.add("hidden");
+      showAlert(alertBox, err.message || "Something went wrong during import.", "error");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+});
+</script>
+</body>
+</html>
