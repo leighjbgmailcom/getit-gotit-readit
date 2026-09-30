@@ -351,6 +351,51 @@ async function setBookStatus(bookId, status) {
   return { userBook: data, error: null };
 }
 
+/** Fixed list of "how I have/read this copy" options, shared with the UI. */
+const USER_BOOK_FORMATS = [
+  "Paper",
+  "Kindle",
+  "Libby",
+  "Hoopla",
+  "Cloud Library",
+  "Apple Books (PDF)",
+  "Downloads Folder",
+  "Memory Stick",
+  "Other",
+];
+
+/**
+ * Save the format/location details for the current user's copy of a
+ * book. Either field may be omitted/null to leave it unset. Only
+ * touches the current user's own user_books row (bookId + user_id),
+ * same access pattern as setBookStatus/removeBookStatus.
+ */
+async function updateUserBookDetails(bookId, { format, location } = {}) {
+  const client = getSupabaseClient();
+  if (!client) return { error: "Setup incomplete. Please try again later." };
+  const user = await getCurrentUser();
+  if (!user) return { error: "Please log in first." };
+
+  const updates = {
+    format: format || null,
+    location: (location || "").trim() || null,
+  };
+
+  const { data, error } = await client
+    .from("user_books")
+    .update(updates)
+    .eq("user_id", user.id)
+    .eq("book_id", bookId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to save format/location:", error);
+    return { error: "Couldn't save that. Please try again." };
+  }
+  return { userBook: data, error: null };
+}
+
 /** Remove a book entirely from the current user's library. */
 async function removeBookStatus(bookId) {
   const client = getSupabaseClient();

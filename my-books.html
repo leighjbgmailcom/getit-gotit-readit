@@ -15,6 +15,7 @@
       <div class="nav-links">
         <a href="index.html">Home</a>
         <a href="search.html">Search</a>
+        <a href="author.html">Find an Author</a>
         <a href="my-books.html">My Books</a>
         <a href="profile.html" id="nav-profile-link">Profile</a>
       </div>
@@ -28,6 +29,7 @@
     <div id="nav-mobile-panel" class="nav-mobile-panel">
       <a href="index.html" data-nav>Home</a>
       <a href="search.html" data-nav>Search</a>
+      <a href="author.html" data-nav>Find an Author</a>
       <a href="my-books.html" data-nav>My Books</a>
       <a href="profile.html" data-nav>Profile</a>
       <div id="nav-mobile-auth-actions"></div>
@@ -47,6 +49,7 @@
       <button class="tab-btn active" data-tab="want">Get It <span class="tab-count" id="count-want">0</span></button>
       <button class="tab-btn" data-tab="have">Got It <span class="tab-count" id="count-have">0</span></button>
       <button class="tab-btn" data-tab="read">Read It <span class="tab-count" id="count-read">0</span></button>
+      <button class="tab-btn" data-tab="authors">Authors I've Read</button>
     </div>
 
     <div id="tab-content"><div class="spinner"></div></div>
@@ -98,6 +101,12 @@ function updateCounts() {
 
 function renderTab() {
   const contentEl = document.getElementById("tab-content");
+
+  if (activeTab === "authors") {
+    renderAuthorsTab(contentEl);
+    return;
+  }
+
   const rows = myBooks[activeTab];
 
   if (!rows || rows.length === 0) {
@@ -116,6 +125,12 @@ function renderTab() {
   gridEl.innerHTML = rows
     .map((row) => {
       const book = row.books;
+      const detailBits = [];
+      if (row.format) detailBits.push(escapeHtml(row.format));
+      if (row.location) detailBits.push(escapeHtml(row.location));
+      const detailHtml = detailBits.length
+        ? `<div class="text-center text-muted" style="font-size:0.78rem; margin-top:2px;">${detailBits.join(" &middot; ")}</div>`
+        : "";
       return `
         <div class="book-card-wrap">
           ${renderBookCard(book, { status: row.status })}
@@ -124,7 +139,9 @@ function renderTab() {
             <button class="btn-status btn-sm ${row.status === "have" ? "active" : ""}" data-status="have">Got It</button>
             <button class="btn-status btn-sm ${row.status === "read" ? "active" : ""}" data-status="read">Read It</button>
           </div>
+          ${detailHtml}
           <div class="text-center" style="margin-top:4px;">
+            <a href="book.html?id=${book.id}" class="btn btn-ghost btn-sm">Details</a>
             <button class="btn btn-ghost btn-sm remove-book-btn" data-book-id="${book.id}" data-book-title="${escapeHtml(book.title)}">Remove</button>
           </div>
         </div>
@@ -171,6 +188,59 @@ function renderTab() {
       renderTab();
     });
   });
+}
+
+/**
+ * "Authors I've Read" leaderboard: how many books read per author,
+ * most to fewest — helps spot reading favourites. Pure client-side
+ * aggregation of myBooks.read, which is already loaded.
+ */
+function renderAuthorsTab(contentEl) {
+  const readRows = myBooks.read || [];
+
+  if (readRows.length === 0) {
+    contentEl.innerHTML = `<div class="empty-state">No books marked as Read It yet. Once you do, your most-read authors will show up here.</div>`;
+    return;
+  }
+
+  const counts = new Map(); // author name -> count
+  for (const row of readRows) {
+    const book = row.books;
+    if (!book || !book.author) continue;
+    // A book can list multiple authors ("Author One, Author Two") —
+    // credit each one individually toward their own tally.
+    book.author
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean)
+      .forEach((name) => counts.set(name, (counts.get(name) || 0) + 1));
+  }
+
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+  if (sorted.length === 0) {
+    contentEl.innerHTML = `<div class="empty-state">No author information available for your read books yet.</div>`;
+    return;
+  }
+
+  contentEl.innerHTML = `
+    <p class="text-muted" style="margin-bottom:14px;">Based on your ${readRows.length} Read It book${readRows.length === 1 ? "" : "s"}, sorted most to fewest.</p>
+    <div class="card" style="overflow:hidden;">
+      ${sorted
+        .map(
+          ([author, count], i) => `
+        <div class="row" style="justify-content:space-between; padding:12px 18px; ${i > 0 ? "border-top:1px solid var(--color-border);" : ""}">
+          <div class="row gap-sm" style="align-items:baseline;">
+            <span class="text-muted" style="font-size:0.85rem; min-width:24px;">${i + 1}.</span>
+            <a href="search.html?q=${encodeURIComponent(author)}&mode=author">${escapeHtml(author)}</a>
+          </div>
+          <span class="tab-count">${count} book${count === 1 ? "" : "s"}</span>
+        </div>
+      `
+        )
+        .join("")}
+    </div>
+  `;
 }
 </script>
 </body>

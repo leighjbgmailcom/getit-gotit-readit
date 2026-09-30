@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Find an Author — GetIt GotIt ReadIt</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <nav class="nav">
+      <a href="index.html" class="nav-brand"><span class="brand-get">GET</span>IT <span class="brand-got">GOT</span>IT <span class="brand-read">READ</span>IT</a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="search.html">Search</a>
+        <a href="author.html">Find an Author</a>
+        <a href="my-books.html">My Books</a>
+        <a href="profile.html" id="nav-profile-link">Profile</a>
+      </div>
+      <div class="nav-actions">
+        <div id="nav-auth-actions" class="row gap-sm"></div>
+        <button id="nav-toggle" class="nav-toggle" aria-label="Toggle menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </nav>
+    <div id="nav-mobile-panel" class="nav-mobile-panel">
+      <a href="index.html" data-nav>Home</a>
+      <a href="search.html" data-nav>Search</a>
+      <a href="author.html" data-nav>Find an Author</a>
+      <a href="my-books.html" data-nav>My Books</a>
+      <a href="profile.html" data-nav>Profile</a>
+      <div id="nav-mobile-auth-actions"></div>
+    </div>
+  </div>
+</header>
+
+<main class="page-main">
+  <div class="container" style="max-width:720px;">
+    <h1>Find an Author</h1>
+    <p class="text-muted">
+      Found a new author you like? Look them up, then add their whole
+      published bibliography to your Get It list in one go &mdash; instead
+      of hunting it down and entering titles one at a time.
+    </p>
+
+    <form id="author-search-form" class="row gap-sm" style="margin-bottom:20px;">
+      <input type="search" id="author-search-input" placeholder="Author name"
+             style="flex:1; padding:11px 16px; border:1.5px solid var(--color-border); border-radius:999px; outline:none;">
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+
+    <div id="author-status"></div>
+    <div id="author-results"></div>
+
+    <div id="works-section" class="hidden">
+      <div class="section-header" style="margin-top:24px;">
+        <h2 id="works-heading"></h2>
+      </div>
+      <p class="text-muted" id="works-subheading" style="margin-bottom:12px;"></p>
+
+      <div class="row gap-sm" style="margin-bottom:14px;">
+        <button class="btn btn-ghost btn-sm" id="select-all-btn" type="button">Select All</button>
+        <button class="btn btn-ghost btn-sm" id="select-none-btn" type="button">Select None</button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary" id="add-selected-btn" type="button">Add Selected to Get It</button>
+      </div>
+
+      <div id="works-alert" class="hidden"></div>
+      <div id="works-progress" class="hidden" style="margin:16px 0;">
+        <div class="spinner" style="margin:0 auto 8px;"></div>
+        <p id="works-progress-text" class="text-muted text-center"></p>
+      </div>
+
+      <div id="works-list"></div>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">GetIt GotIt ReadIt &mdash; track what you want, own, and love reading.</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/api.js"></script>
+<script src="js/books.js"></script>
+<script src="js/import.js"></script>
+<script src="js/authors.js"></script>
+<script src="js/reviews.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/app.js"></script>
+<script>
+let currentAuthor = null;
+let currentWorks = [];
+let myWorkIds = new Set(); // already-tracked openlibrary_work_ids, so we can flag them
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const user = await requireAuth();
+  if (!user) return;
+
+  const form = document.getElementById("author-search-form");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = document.getElementById("author-search-input").value.trim();
+    if (!name) return;
+    await runAuthorSearch(name);
+  });
+
+  const nameParam = getQueryParam("name");
+  if (nameParam) {
+    document.getElementById("author-search-input").value = nameParam;
+    runAuthorSearch(nameParam);
+  }
+});
+
+async function runAuthorSearch(name) {
+  const statusEl = document.getElementById("author-status");
+  const resultsEl = document.getElementById("author-results");
+  document.getElementById("works-section").classList.add("hidden");
+  resultsEl.innerHTML = "";
+  statusEl.innerHTML = '<div class="spinner"></div>';
+
+  const authors = await searchOpenLibraryAuthors(name);
+  statusEl.innerHTML = "";
+
+  if (authors.length === 0) {
+    resultsEl.innerHTML = `<div class="empty-state">No authors found for "${escapeHtml(name)}". Try a different spelling.</div>`;
+    return;
+  }
+
+  resultsEl.innerHTML = `
+    <div class="card" style="overflow:hidden;">
+      ${authors
+        .map(
+          (a, i) => `
+        <button type="button" class="author-result-row" data-index="${i}"
+          style="display:flex; width:100%; justify-content:space-between; align-items:center; padding:14px 18px; border:none; background:none; text-align:left; cursor:pointer; ${i > 0 ? "border-top:1px solid var(--color-border);" : ""}">
+          <span>
+            <strong>${escapeHtml(a.name)}</strong>
+            ${a.birthDate ? `<span class="text-muted" style="font-size:0.85rem;"> &middot; b. ${escapeHtml(a.birthDate)}</span>` : ""}
+            ${a.topWork ? `<div class="text-muted" style="font-size:0.85rem;">Known for: ${escapeHtml(a.topWork)}</div>` : ""}
+          </span>
+          <span class="tab-count">${a.workCount} work${a.workCount === 1 ? "" : "s"}</span>
+        </button>
+      `
+        )
+        .join("")}
+    </div>
+  `;
+
+  resultsEl.querySelectorAll(".author-result-row").forEach((btn) => {
+    btn.addEventListener("click", () => selectAuthor(authors[Number(btn.getAttribute("data-index"))]));
+  });
+}
+
+async function selectAuthor(author) {
+  currentAuthor = author;
+
+  const section = document.getElementById("works-section");
+  const listEl = document.getElementById("works-list");
+  section.classList.remove("hidden");
+  document.getElementById("works-heading").textContent = `${author.name}'s Published Works`;
+  document.getElementById("works-subheading").textContent = "Loading bibliography from Open Library…";
+  listEl.innerHTML = '<div class="spinner"></div>';
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const [works, myLibrary] = await Promise.all([getAuthorWorks(author.key), getMyLibraryForMatching()]);
+  myWorkIds = new Set(myLibrary.map((e) => e.workId).filter(Boolean));
+  currentWorks = works;
+
+  if (works.length === 0) {
+    document.getElementById("works-subheading").textContent = "";
+    listEl.innerHTML = `<div class="empty-state">Open Library doesn't have a works list for this author yet.</div>`;
+    return;
+  }
+
+  document.getElementById("works-subheading").textContent =
+    `Found ${works.length} work${works.length === 1 ? "" : "s"}. Already-tracked books are unchecked by default — pick the ones you want to add.`;
+
+  listEl.innerHTML = `
+    <div class="card" style="overflow:hidden;">
+      ${works
+        .map((w, i) => {
+          const alreadyTracked = myWorkIds.has(w.openlibrary_work_id);
+          return `
+        <label class="row gap-sm" style="padding:10px 18px; align-items:center; ${i > 0 ? "border-top:1px solid var(--color-border);" : ""} ${alreadyTracked ? "opacity:0.55;" : ""}">
+          <input type="checkbox" class="work-checkbox" data-index="${i}" ${alreadyTracked ? "" : "checked"}>
+          <span style="flex:1;">
+            ${escapeHtml(w.title)}
+            ${w.first_publish_year ? `<span class="text-muted" style="font-size:0.85rem;"> &middot; ${w.first_publish_year}</span>` : ""}
+          </span>
+          ${alreadyTracked ? `<span class="tab-count">Already in your library</span>` : ""}
+        </label>
+      `;
+        })
+        .join("")}
+    </div>
+  `;
+
+  wireWorksControls();
+}
+
+function wireWorksControls() {
+  document.getElementById("select-all-btn").addEventListener("click", () => {
+    document.querySelectorAll(".work-checkbox").forEach((cb) => (cb.checked = true));
+  });
+  document.getElementById("select-none-btn").addEventListener("click", () => {
+    document.querySelectorAll(".work-checkbox").forEach((cb) => (cb.checked = false));
+  });
+
+  document.getElementById("add-selected-btn").addEventListener("click", async () => {
+    const alertBox = document.getElementById("works-alert");
+    clearAlert(alertBox);
+
+    const selected = [...document.querySelectorAll(".work-checkbox:checked")].map(
+      (cb) => currentWorks[Number(cb.getAttribute("data-index"))]
+    );
+
+    if (selected.length === 0) {
+      showAlert(alertBox, "Select at least one book to add.", "error");
+      return;
+    }
+
+    const worksWithAuthor = selected.map((w) => ({ ...w, author: currentAuthor.name }));
+
+    const addBtn = document.getElementById("add-selected-btn");
+    addBtn.disabled = true;
+    document.getElementById("works-progress").classList.remove("hidden");
+    const progressText = document.getElementById("works-progress-text");
+
+    try {
+      const { added } = await bulkAddWorksAsWant(worksWithAuthor, (msg) => {
+        progressText.textContent = msg;
+      });
+      document.getElementById("works-progress").classList.add("hidden");
+      showToast(`Added ${added} book${added === 1 ? "" : "s"} to your Get It list!`, "success");
+      showAlert(
+        alertBox,
+        `Added ${added} book${added === 1 ? "" : "s"} by ${escapeHtml(currentAuthor.name)} to your Get It list. <a href="my-books.html">View My Books</a>`,
+        "success"
+      );
+    } catch (err) {
+      document.getElementById("works-progress").classList.add("hidden");
+      showAlert(alertBox, err.message || "Something went wrong adding these books.", "error");
+    } finally {
+      addBtn.disabled = false;
+    }
+  });
+}
+</script>
+</body>
+</html>

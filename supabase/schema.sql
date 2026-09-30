@@ -78,6 +78,17 @@ create table if not exists public.user_books (
   user_id        uuid not null references public.profiles(id) on delete cascade,
   book_id        uuid not null references public.books(id) on delete cascade,
   status         text not null check (status in ('want', 'have', 'read')),
+  -- How the user has/reads this copy (only meaningful once they have or
+  -- have read it). Fixed list, or NULL if unset.
+  format         text check (
+                   format is null or format in (
+                     'Paper', 'Kindle', 'Libby', 'Hoopla', 'Cloud Library',
+                     'Apple Books (PDF)', 'Downloads Folder', 'Memory Stick', 'Other'
+                   )
+                 ),
+  -- Free-text note on where this copy lives (a shelf, a device, a
+  -- folder). Optional, user-defined, no fixed format.
+  location       text,
   date_added     timestamptz not null default now(),
   date_started   timestamptz,
   date_finished  timestamptz,

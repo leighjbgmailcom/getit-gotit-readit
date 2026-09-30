@@ -15,6 +15,7 @@
       <div class="nav-links">
         <a href="index.html">Home</a>
         <a href="search.html">Search</a>
+        <a href="author.html">Find an Author</a>
         <a href="my-books.html">My Books</a>
         <a href="profile.html" id="nav-profile-link">Profile</a>
       </div>
@@ -28,6 +29,7 @@
     <div id="nav-mobile-panel" class="nav-mobile-panel">
       <a href="index.html" data-nav>Home</a>
       <a href="search.html" data-nav>Search</a>
+      <a href="author.html" data-nav>Find an Author</a>
       <a href="my-books.html" data-nav>My Books</a>
       <a href="profile.html" data-nav>Profile</a>
       <div id="nav-mobile-auth-actions"></div>
@@ -56,6 +58,23 @@
             <div id="status-hint" class="form-hint"></div>
             <button id="remove-status-btn" class="btn btn-ghost btn-sm hidden">Remove from my list</button>
           </div>
+        </div>
+      </div>
+
+      <div id="format-location-panel" class="card card-pad hidden section">
+        <h3 style="margin-bottom:10px;">My Copy</h3>
+        <div class="row gap-md" style="flex-wrap:wrap; align-items:flex-end;">
+          <div class="form-group" style="margin-bottom:0; min-width:200px;">
+            <label for="format-select">Format</label>
+            <select id="format-select">
+              <option value="">Not set</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0; flex:1; min-width:200px;">
+            <label for="location-input">Location <span class="text-muted">(optional)</span></label>
+            <input type="text" id="location-input" placeholder="e.g. living room shelf, iPad, USB stick in desk drawer">
+          </div>
+          <button class="btn btn-primary" id="save-format-location-btn">Save</button>
         </div>
       </div>
 
@@ -230,6 +249,7 @@ async function renderBookPage() {
     : getCoverPlaceholderHtml();
 
   wireStatusButtons();
+  wireFormatLocation();
 
   if (state.currentUser && state.book) {
     state.myStatus = await getMyStatusForBook(state.book.id);
@@ -381,6 +401,45 @@ function updateStatusButtonsUI() {
     ? `You marked this as "${STATUS_LABELS[state.myStatus.status]}". Click a status again to change it, or remove it.`
     : "";
   document.getElementById("remove-status-btn").classList.toggle("hidden", !state.myStatus);
+  updateFormatLocationUI();
+}
+
+/** Populate + show/hide the "My Copy" (format/location) panel to match state.myStatus. */
+function updateFormatLocationUI() {
+  const panel = document.getElementById("format-location-panel");
+  panel.classList.toggle("hidden", !state.myStatus);
+  if (!state.myStatus) return;
+  document.getElementById("format-select").value = state.myStatus.format || "";
+  document.getElementById("location-input").value = state.myStatus.location || "";
+}
+
+function wireFormatLocation() {
+  const select = document.getElementById("format-select");
+  USER_BOOK_FORMATS.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f;
+    opt.textContent = f;
+    select.appendChild(opt);
+  });
+
+  document.getElementById("save-format-location-btn").addEventListener("click", async () => {
+    if (!state.myStatus || !state.book) return;
+    const btn = document.getElementById("save-format-location-btn");
+    btn.disabled = true;
+
+    const format = document.getElementById("format-select").value;
+    const location = document.getElementById("location-input").value;
+
+    const { userBook, error } = await updateUserBookDetails(state.book.id, { format, location });
+    btn.disabled = false;
+
+    if (error) {
+      showToast(error, "error");
+      return;
+    }
+    state.myStatus = userBook;
+    showToast("Saved.", "success");
+  });
 }
 
 /** Make sure this book has a row in the `books` cache table, creating it if needed. */

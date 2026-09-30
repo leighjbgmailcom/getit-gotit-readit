@@ -461,7 +461,8 @@ button, input, textarea, select {
   color: var(--color-text);
 }
 .form-group input,
-.form-group textarea {
+.form-group textarea,
+.form-group select {
   width: 100%;
   padding: 11px 14px;
   border: 1.5px solid var(--color-border);
@@ -471,7 +472,8 @@ button, input, textarea, select {
   background: var(--color-surface);
 }
 .form-group input:focus,
-.form-group textarea:focus {
+.form-group textarea:focus,
+.form-group select:focus {
   border-color: var(--color-accent);
 }
 .form-hint {
