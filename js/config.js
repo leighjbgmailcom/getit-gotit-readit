@@ -14,8 +14,8 @@
 // app has no server, so it should never appear anywhere in this repo).
 // =====================================================================
 
-const SUPABASE_URL = "YOUR_SUPABASE_URL";
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://leighjbgmailcom.github.io/getit-gotit-readit";
+const SUPABASE_URL = "https://ahzrrcpgxievpqydturc.supabase.co";
 
 // After login/signup, users are sent here.
 const POST_LOGIN_REDIRECT = "my-books.html";
