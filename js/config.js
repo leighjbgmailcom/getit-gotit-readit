@@ -14,8 +14,8 @@
 // app has no server, so it should never appear anywhere in this repo).
 // =====================================================================
 
-const SUPABASE_URL = "https://leighjbgmailcom.github.io/getit-gotit-readit";
 const SUPABASE_URL = "https://ahzrrcpgxievpqydturc.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFoenJyY3BneGlldnBxeWR0dXJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMzE3NzksImV4cCI6MjEwNTYwNzc3OX0.pIwFqrccMAhPOI-V0seV3VJ4oO5Ww5r6jrce611zVdE";
 
 // After login/signup, users are sent here.
 const POST_LOGIN_REDIRECT = "my-books.html";
