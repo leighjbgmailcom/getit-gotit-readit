@@ -61,6 +61,25 @@
       </div>
       <p class="text-muted" id="works-subheading" style="margin-bottom:12px;"></p>
 
+      <div class="filter-controls" id="works-filters">
+        <label>Published
+          <select id="filter-years">
+            <option value="0">Any year</option>
+            <option value="5">Last 5 years</option>
+            <option value="10">Last 10 years</option>
+            <option value="20">Last 20 years</option>
+          </select>
+        </label>
+        <label>Sort
+          <select id="filter-sort">
+            <option value="new">Newest first</option>
+            <option value="old">Oldest first</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="filter-english" checked> English only</label>
+        <label><input type="checkbox" id="filter-hide-mine" checked> Hide books already in my library</label>
+      </div>
+
       <div class="row gap-sm" style="margin-bottom:14px;">
         <button class="btn btn-ghost btn-sm" id="select-all-btn" type="button">Select All</button>
         <button class="btn btn-ghost btn-sm" id="select-none-btn" type="button">Select None</button>
@@ -98,20 +117,26 @@
 <script src="js/app.js"></script>
 <script>
 let currentAuthor = null;
-let currentWorks = [];
-let myWorkIds = new Set(); // already-tracked openlibrary_work_ids, so we can flag them
+let currentWorks = [];        // every work for the chosen author, tagged against the library
+let hasLanguageInfo = true;   // false if Open Library's language data wasn't available
+const selectedIds = new Set(); // ticked works, by openlibrary_work_id — survives filter changes
 
 document.addEventListener("DOMContentLoaded", async () => {
   const user = await requireAuth();
   if (!user) return;
 
-  const form = document.getElementById("author-search-form");
-  form.addEventListener("submit", async (e) => {
+  document.getElementById("author-search-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = document.getElementById("author-search-input").value.trim();
     if (!name) return;
     await runAuthorSearch(name);
   });
+
+  ["filter-years", "filter-sort", "filter-english", "filter-hide-mine"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", renderWorks);
+  });
+
+  wireWorksControls();
 
   const nameParam = getQueryParam("name");
   if (nameParam) {
@@ -162,6 +187,9 @@ async function runAuthorSearch(name) {
 
 async function selectAuthor(author) {
   currentAuthor = author;
+  currentWorks = [];
+  selectedIds.clear();
+  clearAlert(document.getElementById("works-alert"));
 
   const section = document.getElementById("works-section");
   const listEl = document.getElementById("works-list");
@@ -171,32 +199,98 @@ async function selectAuthor(author) {
   listEl.innerHTML = '<div class="spinner"></div>';
   section.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  const [works, myLibrary] = await Promise.all([getAuthorWorks(author.key), getMyLibraryForMatching()]);
-  myWorkIds = new Set(myLibrary.map((e) => e.workId).filter(Boolean));
-  currentWorks = works;
+  const [result, myLibrary] = await Promise.all([getAuthorWorks(author.key), getMyLibraryForMatching()]);
+  hasLanguageInfo = result.hasLanguageInfo;
 
-  if (works.length === 0) {
+  // Tag each work against the library the same way the Search page does:
+  // by Open Library id, and by title + author (which catches books that
+  // came in from a spreadsheet import under a different id).
+  currentWorks = result.works.map((w) => ({ ...w, author: author.name }));
+  matchSearchResultsToLibrary(currentWorks, myLibrary);
+  const byWorkId = new Map(myLibrary.filter((e) => e.workId).map((e) => [e.workId, e]));
+  for (const w of currentWorks) {
+    const idMatch = byWorkId.get(w.openlibrary_work_id);
+    if (!w.myStatus && idMatch) {
+      w.myStatus = idMatch.status;
+      w.matchedEntry = idMatch;
+      w.possibleMatch = null;
+    }
+    // New books start ticked; anything already (or possibly) in the library starts unticked.
+    if (!w.myStatus && !w.possibleMatch) selectedIds.add(w.openlibrary_work_id);
+  }
+
+  if (currentWorks.length === 0) {
     document.getElementById("works-subheading").textContent = "";
     listEl.innerHTML = `<div class="empty-state">Open Library doesn't have a works list for this author yet.</div>`;
     return;
   }
 
-  document.getElementById("works-subheading").textContent =
-    `Found ${works.length} work${works.length === 1 ? "" : "s"}. Already-tracked books are unchecked by default — pick the ones you want to add.`;
+  renderWorks();
+}
+
+/** The works that pass the current filters, in the chosen order. */
+function getVisibleWorks() {
+  const years = Number(document.getElementById("filter-years").value);
+  const sort = document.getElementById("filter-sort").value;
+  const englishOnly = document.getElementById("filter-english").checked;
+  const hideMine = document.getElementById("filter-hide-mine").checked;
+  const minYear = years ? new Date().getFullYear() - years + 1 : null;
+
+  const visible = currentWorks.filter((w) => {
+    if (minYear && !(w.first_publish_year && w.first_publish_year >= minYear)) return false;
+    if (englishOnly && hasLanguageInfo && !isEnglishWork(w)) return false;
+    if (hideMine && w.myStatus) return false;
+    return true;
+  });
+
+  visible.sort((a, b) => {
+    // Unknown years always go last, whichever direction.
+    if (a.first_publish_year == null && b.first_publish_year == null) return a.title.localeCompare(b.title);
+    if (a.first_publish_year == null) return 1;
+    if (b.first_publish_year == null) return -1;
+    return sort === "old" ? a.first_publish_year - b.first_publish_year : b.first_publish_year - a.first_publish_year;
+  });
+  return visible;
+}
+
+function renderWorks() {
+  if (!currentAuthor || currentWorks.length === 0) return;
+  const listEl = document.getElementById("works-list");
+  const visible = getVisibleWorks();
+  const inLibrary = currentWorks.filter((w) => w.myStatus).length;
+
+  let sub = `Showing ${visible.length} of ${currentWorks.length} work${currentWorks.length === 1 ? "" : "s"}.`;
+  if (inLibrary) sub += ` ${inLibrary} already in your library.`;
+  sub += " Tick the ones you want, then add them.";
+  if (!hasLanguageInfo) sub += " (Open Library had no language info for this author, so the English filter can't be applied.)";
+  document.getElementById("works-subheading").textContent = sub;
+
+  if (visible.length === 0) {
+    listEl.innerHTML = `<div class="empty-state">No books match these filters. Try a wider year range.</div>`;
+    return;
+  }
 
   listEl.innerHTML = `
     <div class="card" style="overflow:hidden;">
-      ${works
+      ${visible
         .map((w, i) => {
-          const alreadyTracked = myWorkIds.has(w.openlibrary_work_id);
+          const tracked = !!w.myStatus;
+          let note = "";
+          if (tracked) {
+            note = `<span class="tab-count">Already ${escapeHtml(STATUS_LABELS[w.myStatus])}</span>`;
+          } else if (w.possibleMatch) {
+            note = `<div class="text-muted" style="font-size:0.8rem;">Might already be in your library as "${escapeHtml(w.possibleMatch.title)}"</div>`;
+          }
           return `
-        <label class="row gap-sm" style="padding:10px 18px; align-items:center; ${i > 0 ? "border-top:1px solid var(--color-border);" : ""} ${alreadyTracked ? "opacity:0.55;" : ""}">
-          <input type="checkbox" class="work-checkbox" data-index="${i}" ${alreadyTracked ? "" : "checked"}>
+        <label class="row gap-sm" style="padding:10px 18px; align-items:center; ${i > 0 ? "border-top:1px solid var(--color-border);" : ""} ${tracked ? "opacity:0.55;" : ""}">
+          <input type="checkbox" class="work-checkbox" data-work-id="${escapeHtml(w.openlibrary_work_id)}"
+            ${tracked ? "disabled" : selectedIds.has(w.openlibrary_work_id) ? "checked" : ""}>
           <span style="flex:1;">
             ${escapeHtml(w.title)}
             ${w.first_publish_year ? `<span class="text-muted" style="font-size:0.85rem;"> &middot; ${w.first_publish_year}</span>` : ""}
+            ${tracked ? "" : note}
           </span>
-          ${alreadyTracked ? `<span class="tab-count">Already in your library</span>` : ""}
+          ${tracked ? note : ""}
         </label>
       `;
         })
@@ -204,31 +298,39 @@ async function selectAuthor(author) {
     </div>
   `;
 
-  wireWorksControls();
+  listEl.querySelectorAll(".work-checkbox").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const id = cb.getAttribute("data-work-id");
+      if (cb.checked) selectedIds.add(id);
+      else selectedIds.delete(id);
+    });
+  });
 }
 
 function wireWorksControls() {
+  // Select All / None act on what's currently shown, so a "last 5 years"
+  // view never quietly ticks hidden older books.
   document.getElementById("select-all-btn").addEventListener("click", () => {
-    document.querySelectorAll(".work-checkbox").forEach((cb) => (cb.checked = true));
+    getVisibleWorks().forEach((w) => {
+      if (!w.myStatus) selectedIds.add(w.openlibrary_work_id);
+    });
+    renderWorks();
   });
   document.getElementById("select-none-btn").addEventListener("click", () => {
-    document.querySelectorAll(".work-checkbox").forEach((cb) => (cb.checked = false));
+    getVisibleWorks().forEach((w) => selectedIds.delete(w.openlibrary_work_id));
+    renderWorks();
   });
 
   document.getElementById("add-selected-btn").addEventListener("click", async () => {
     const alertBox = document.getElementById("works-alert");
     clearAlert(alertBox);
 
-    const selected = [...document.querySelectorAll(".work-checkbox:checked")].map(
-      (cb) => currentWorks[Number(cb.getAttribute("data-index"))]
-    );
-
+    // Only add ticked books that are visible under the current filters.
+    const selected = getVisibleWorks().filter((w) => !w.myStatus && selectedIds.has(w.openlibrary_work_id));
     if (selected.length === 0) {
       showAlert(alertBox, "Select at least one book to add.", "error");
       return;
     }
-
-    const worksWithAuthor = selected.map((w) => ({ ...w, author: currentAuthor.name }));
 
     const addBtn = document.getElementById("add-selected-btn");
     addBtn.disabled = true;
@@ -236,16 +338,18 @@ function wireWorksControls() {
     const progressText = document.getElementById("works-progress-text");
 
     try {
-      const { added } = await bulkAddWorksAsWant(worksWithAuthor, (msg) => {
+      const { added, skipped } = await bulkAddWorksAsWant(selected, (msg) => {
         progressText.textContent = msg;
       });
       document.getElementById("works-progress").classList.add("hidden");
+
+      let msg = `Added ${added} book${added === 1 ? "" : "s"} by ${escapeHtml(currentAuthor.name)} to your Get It list.`;
+      if (skipped) msg += ` Skipped ${skipped} already in your library (left exactly as they were).`;
       showToast(`Added ${added} book${added === 1 ? "" : "s"} to your Get It list!`, "success");
-      showAlert(
-        alertBox,
-        `Added ${added} book${added === 1 ? "" : "s"} by ${escapeHtml(currentAuthor.name)} to your Get It list. <a href="my-books.html">View My Books</a>`,
-        "success"
-      );
+      showAlert(alertBox, `${msg} <a href="my-books.html">View My Books</a>`, "success");
+
+      // Refresh the list so the newly added books show as already tracked.
+      await selectAuthorRefresh();
     } catch (err) {
       document.getElementById("works-progress").classList.add("hidden");
       showAlert(alertBox, err.message || "Something went wrong adding these books.", "error");
@@ -253,6 +357,23 @@ function wireWorksControls() {
       addBtn.disabled = false;
     }
   });
+}
+
+/** Re-tag the current works against the (now updated) library without refetching Open Library. */
+async function selectAuthorRefresh() {
+  const myLibrary = await getMyLibraryForMatching();
+  const byWorkId = new Map(myLibrary.filter((e) => e.workId).map((e) => [e.workId, e]));
+  matchSearchResultsToLibrary(currentWorks, myLibrary);
+  for (const w of currentWorks) {
+    const idMatch = byWorkId.get(w.openlibrary_work_id);
+    if (!w.myStatus && idMatch) {
+      w.myStatus = idMatch.status;
+      w.matchedEntry = idMatch;
+      w.possibleMatch = null;
+    }
+    if (w.myStatus) selectedIds.delete(w.openlibrary_work_id);
+  }
+  renderWorks();
 }
 </script>
 </body>

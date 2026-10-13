@@ -8,6 +8,12 @@
 //
 //   Author, Book Title, Status, Year
 //
+// Optional series columns (either name works):
+//   Series  (or "Main Character")   e.g. Harry Bosch
+//   Series #  (or "Number", "#")    e.g. 3
+// A blank series cell leaves any series already saved for that book
+// alone — it never clears one.
+//
 // Status values are matched case-insensitively:
 //   "Read It"                        -> read
 //   "Get It"                         -> want
@@ -107,6 +113,13 @@ function normalizeImportRows(csvObjects) {
   const authorKey = ["Author", "author"].find((k) => (csvObjects[0] ? k in csvObjects[0] : false));
   const statusKey = ["Status", "status"].find((k) => (csvObjects[0] ? k in csvObjects[0] : false));
   const yearKey = ["Year", "year"].find((k) => (csvObjects[0] ? k in csvObjects[0] : false));
+  const findKey = (names) => {
+    if (!csvObjects[0]) return undefined;
+    const keys = Object.keys(csvObjects[0]);
+    return keys.find((k) => names.includes(k.trim().toLowerCase()));
+  };
+  const seriesKey = findKey(["series", "series name", "main character", "character"]);
+  const seriesNumKey = findKey(["series #", "series number", "series no", "series no.", "number", "#", "no.", "order"]);
 
   const summary = { totalRows: csvObjects.length, missingTitle: 0, missingStatus: 0, duplicatesCollapsed: 0 };
   const byWorkId = new Map();
@@ -117,6 +130,9 @@ function normalizeImportRows(csvObjects) {
     const status = mapImportStatus(statusKey ? row[statusKey] : "");
     const yearRaw = yearKey ? row[yearKey] : "";
     const year = /^\d{3,4}$/.test(yearRaw) ? Number(yearRaw) : null;
+    const seriesName = seriesKey ? (row[seriesKey] || "").trim() : "";
+    const seriesNumRaw = seriesNumKey ? (row[seriesNumKey] || "").replace(/^#/, "").trim() : "";
+    const seriesNumber = seriesNumRaw !== "" && Number.isFinite(Number(seriesNumRaw)) ? Number(seriesNumRaw) : null;
 
     if (!title.trim()) {
       summary.missingTitle++;
@@ -136,6 +152,8 @@ function normalizeImportRows(csvObjects) {
       author: author.trim() || null,
       first_publish_year: year,
       status,
+      series_name: seriesName || null,
+      series_number: seriesName ? seriesNumber : null,
     });
   }
 
@@ -199,6 +217,19 @@ async function runCsvImport(csvText, onProgress) {
     for (const row of data) workIdToBookId.set(row.openlibrary_work_id, row.id);
   }
 
+  // Series: only for rows that actually have one, one small update each,
+  // so a blank cell never wipes a series typed in elsewhere.
+  const withSeries = books.filter((b) => b.series_name && workIdToBookId.get(b.openlibrary_work_id));
+  for (let i = 0; i < withSeries.length; i++) {
+    if (i % 25 === 0) onProgress(`Saving series details… ${i + 1} of ${withSeries.length}`);
+    const b = withSeries[i];
+    const { error } = await client
+      .from("books")
+      .update({ series_name: b.series_name, series_number: b.series_number })
+      .eq("id", workIdToBookId.get(b.openlibrary_work_id));
+    if (error) console.error("Import: failed to save series for", b.title, error);
+  }
+
   onProgress("Setting your reading statuses…");
 
   const statusRows = books
@@ -230,5 +261,6 @@ async function runCsvImport(csvText, onProgress) {
     skippedMissingTitle: summary.missingTitle,
     skippedMissingStatus: summary.missingStatus,
     duplicatesCollapsed: summary.duplicatesCollapsed,
+    seriesSaved: withSeries.length,
   };
 }

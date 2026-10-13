@@ -58,6 +58,11 @@
         (or <code>Got It - Paper</code> / <code>Got It - Kindle</code> / etc.), or <code>Read It</code>.
         Rows missing a title or a recognizable status are skipped automatically.
       </p>
+      <p class="text-muted" style="font-size:0.85rem;">
+        <strong>Optional:</strong> add <code>Series</code> and <code>Series #</code> columns to record the
+        series or main character and the book's number in it &mdash; e.g.
+        <code>Michael Connelly, The Concrete Blonde, Read It, 1994, Harry Bosch, 3</code>.
+      </p>
 
       <div id="import-alert" class="hidden"></div>
 
@@ -143,6 +148,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           ${result.duplicatesCollapsed ? `${result.duplicatesCollapsed} duplicate rows collapsed. ` : ""}
           ${result.skippedMissingTitle ? `${result.skippedMissingTitle} rows skipped (no title). ` : ""}
           ${result.skippedMissingStatus ? `${result.skippedMissingStatus} rows skipped (no recognizable status).` : ""}
+          ${result.seriesSaved ? ` Series details saved for ${result.seriesSaved} books.` : ""}
         </p>
         <a href="my-books.html" class="btn btn-primary" style="margin-top:8px;">View My Books</a>
       `;

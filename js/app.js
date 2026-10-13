@@ -55,6 +55,18 @@ function formatYear(year) {
   return year ? String(year) : "";
 }
 
+/**
+ * "Harry Bosch #3" style label for a book's series, or "" if it has
+ * none. Whole numbers drop the decimals Postgres returns ("3.00" -> 3),
+ * while in-between entries keep them ("2.50" -> 2.5).
+ */
+function formatSeries(book) {
+  if (!book || !book.series_name) return "";
+  const n = book.series_number;
+  if (n === null || n === undefined || n === "") return book.series_name;
+  return `${book.series_name} #${Number(n)}`;
+}
+
 /** Friendly relative-ish date for reviews / activity. */
 function formatDate(isoString) {
   if (!isoString) return "";
@@ -97,6 +109,7 @@ function renderBookCard(book, opts = {}) {
     : getCoverPlaceholderHtml();
 
   const year = formatYear(book.first_publish_year);
+  const series = formatSeries(book);
   const badge = opts.status
     ? `<span class="book-card-status-badge ${STATUS_BADGE_CLASS[opts.status]}">${STATUS_LABELS[opts.status]}</span>`
     : "";
@@ -107,6 +120,7 @@ function renderBookCard(book, opts = {}) {
       <div class="book-card-body">
         <div class="book-card-title">${escapeHtml(book.title)}</div>
         <div class="book-card-author">${escapeHtml(book.author || "Unknown author")}</div>
+        ${series ? `<div class="book-card-series">${escapeHtml(series)}</div>` : ""}
         ${year ? `<div class="book-card-year">${escapeHtml(year)}</div>` : ""}
         <div class="book-card-footer">${badge}</div>
       </div>

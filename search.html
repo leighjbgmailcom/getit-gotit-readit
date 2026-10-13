@@ -54,6 +54,24 @@
       <button type="submit" class="btn btn-primary">Search</button>
     </form>
 
+    <div class="filter-controls" id="search-filters" style="margin-top:-12px; margin-bottom:20px;">
+      <label>Published
+        <select id="search-years">
+          <option value="0">Any year</option>
+          <option value="5">Last 5 years</option>
+          <option value="10">Last 10 years</option>
+          <option value="20">Last 20 years</option>
+        </select>
+      </label>
+      <label>Sort
+        <select id="search-sort">
+          <option value="relevance">Best match</option>
+          <option value="new">Newest first</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="search-english" checked> English only</label>
+    </div>
+
     <div id="search-status"></div>
 
     <div id="filter-bar" class="hidden" style="margin-bottom:20px;">
@@ -117,6 +135,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     runSearch(q, mode);
   });
 
+  // Changing a search filter re-runs the current search straight away.
+  ["search-years", "search-sort", "search-english"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", () => {
+      const q = input.value.trim();
+      if (q) runSearch(q, modeSelect.value);
+    });
+  });
+
   document.querySelectorAll("#filter-buttons .btn-status").forEach((btn) => {
     btn.addEventListener("click", () => {
       const key = btn.getAttribute("data-status");
@@ -135,7 +161,12 @@ async function runSearch(query, mode) {
   filterBar.classList.add("hidden");
   statusEl.innerHTML = '<div class="spinner"></div>';
 
-  const { results, error } = await searchOpenLibrary(query, mode);
+  const years = Number(document.getElementById("search-years").value);
+  const { results, error } = await searchOpenLibrary(query, mode, {
+    englishOnly: document.getElementById("search-english").checked,
+    sinceYear: years ? new Date().getFullYear() - years + 1 : null,
+    sort: document.getElementById("search-sort").value,
+  });
 
   if (error) {
     statusEl.innerHTML = `<div class="empty-state">${escapeHtml(error)}</div>`;

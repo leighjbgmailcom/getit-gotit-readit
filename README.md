@@ -208,6 +208,27 @@ email".
   other user who touches the same book reuses that same cached row —
   Open Library is never queried twice for the same book once it's been
   added.
+- **Filters.** Search and Find an Author both offer *Published: last
+  5 / 10 / 20 years*, *Newest first*, and *English only* (on by
+  default). English only adds `language:eng` to the Open Library
+  query, which drops works with no English edition; the year filter
+  adds `first_publish_year:[YYYY TO *]` and is also re-checked in the
+  browser. ISBN lookups ignore the filters.
+- **Find an Author** pulls the bibliography from `search.json?q=author_key:<key>`
+  (which carries language info), falling back to the plain
+  `/authors/<key>/works.json` listing if that comes back empty. Open
+  Library's duplicate records for the same title are collapsed into
+  one line.
+- **Bulk add never overwrites.** Books already in your library — matched
+  by Open Library id *or* by title + author (so spreadsheet imports
+  count, and "Connelly, Michael" matches "Michael Connelly") — are shown
+  greyed out and skipped. Every bulk write is insert-if-missing, so an
+  existing Got It / Read It is never knocked back to Get It.
+- **Series.** Each book can carry a series (or main character) name and
+  number, e.g. *Harry Bosch #3* (`supabase/migration-003-series.sql`).
+  It's entered on the book page under *My Copy*, or via optional
+  `Series` / `Series #` columns in a CSV import. Open Library's series
+  data is too patchy to fill this in automatically.
 
 ---
 

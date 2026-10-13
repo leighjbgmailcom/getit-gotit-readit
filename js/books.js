@@ -157,7 +157,14 @@ function authorsLikelyMatch(a, b) {
   const na = normalizeForMatch(a);
   const nb = normalizeForMatch(b);
   if (!na || !nb) return true; // unknown author on either side — don't let it block a title match
-  return na === nb || na.includes(nb) || nb.includes(na);
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  // Word order shouldn't matter: "Connelly, Michael" (common in
+  // spreadsheets) is the same person as "Michael Connelly". Match if
+  // every word of the shorter name appears in the longer one.
+  const wa = na.split(" ");
+  const wb = nb.split(" ");
+  const [shorter, longer] = wa.length <= wb.length ? [wa, new Set(wb)] : [wb, new Set(wa)];
+  return shorter.every((word) => longer.has(word));
 }
 
 /**
@@ -394,6 +401,57 @@ async function updateUserBookDetails(bookId, { format, location } = {}) {
     return { error: "Couldn't save that. Please try again." };
   }
   return { userBook: data, error: null };
+}
+
+/**
+ * Save a book's series name and number (e.g. "Harry Bosch", 3). Series
+ * belongs to the book itself, so it's stored on the shared `books` row
+ * and everyone tracking the book sees it. Blank values clear the field.
+ */
+async function updateBookSeries(bookId, { seriesName, seriesNumber } = {}) {
+  const client = getSupabaseClient();
+  if (!client) return { error: "Setup incomplete. Please try again later." };
+
+  const name = (seriesName || "").trim() || null;
+  let number = null;
+  if (seriesNumber !== undefined && seriesNumber !== null && String(seriesNumber).trim() !== "") {
+    number = Number(String(seriesNumber).replace(/^#/, "").trim());
+    if (!Number.isFinite(number) || number < 0) return { error: "The series number should be a number, like 3." };
+  }
+
+  const { data, error } = await client
+    .from("books")
+    .update({ series_name: name, series_number: name ? number : null })
+    .eq("id", bookId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to save series:", error);
+    return { error: "Couldn't save the series. Please try again." };
+  }
+  return { book: data, error: null };
+}
+
+/** Distinct series names across the current user's library, for autocomplete. */
+async function getMySeriesNames() {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const user = await getCurrentUser();
+  if (!user) return [];
+  const { data, error } = await client
+    .from("user_books")
+    .select("books(series_name)")
+    .eq("user_id", user.id);
+  if (error) {
+    console.error("Failed to load series names:", error);
+    return [];
+  }
+  const names = new Set();
+  for (const row of data || []) {
+    if (row.books && row.books.series_name) names.add(row.books.series_name);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 /** Remove a book entirely from the current user's library. */

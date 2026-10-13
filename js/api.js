@@ -10,9 +10,13 @@
  * Search Open Library.
  * @param {string} query - the raw search text
  * @param {"title"|"author"|"isbn"|"keyword"} mode
+ * @param {object} [filters]
+ * @param {boolean} [filters.englishOnly] - only works with an English edition
+ * @param {number|null} [filters.sinceYear] - only works first published in or after this year
+ * @param {"relevance"|"new"} [filters.sort]
  * @returns {Promise<{results: Array, error: string|null}>}
  */
-async function searchOpenLibrary(query, mode = "keyword") {
+async function searchOpenLibrary(query, mode = "keyword", filters = {}) {
   const trimmed = (query || "").trim();
   if (!trimmed) {
     return { results: [], error: "Please enter something to search for." };
@@ -26,6 +30,17 @@ async function searchOpenLibrary(query, mode = "keyword") {
     "key,title,author_name,first_publish_year,cover_i,cover_edition_key,isbn,edition_key"
   );
 
+  // Extra filter clauses go into Open Library's `q` query alongside the
+  // field search. (The separate `lang` parameter only *boosts* a
+  // language; `language:eng` in the query is what actually excludes
+  // works with no English edition.) ISBN lookups skip the filters —
+  // you're asking for one specific book.
+  const filterClauses = [];
+  if (mode !== "isbn") {
+    if (filters.englishOnly) filterClauses.push("language:eng");
+    if (filters.sinceYear) filterClauses.push(`first_publish_year:[${Number(filters.sinceYear)} TO *]`);
+  }
+
   if (mode === "isbn") {
     // Clean ISBN input (strip dashes/spaces) and search directly.
     const cleanIsbn = trimmed.replace(/[^0-9Xx]/g, "");
@@ -35,8 +50,10 @@ async function searchOpenLibrary(query, mode = "keyword") {
   } else if (mode === "author") {
     params.set("author", trimmed);
   } else {
-    params.set("q", trimmed);
+    filterClauses.unshift(trimmed);
   }
+  if (filterClauses.length) params.set("q", filterClauses.join(" "));
+  if (mode !== "isbn" && (filters.sort === "new" || filters.sinceYear)) params.set("sort", "new");
 
   url = `${OPEN_LIBRARY_BASE}/search.json?${params.toString()}`;
 
@@ -50,10 +67,17 @@ async function searchOpenLibrary(query, mode = "keyword") {
 
     const results = docs
       .filter((doc) => doc.key) // must have a work key like "/works/OL123W"
+      .filter((doc) => !filters.sinceYear || mode === "isbn" || (doc.first_publish_year && doc.first_publish_year >= filters.sinceYear))
       .map((doc) => normalizeSearchDoc(doc));
 
     if (results.length === 0) {
-      return { results: [], error: "No books found. Try a different search." };
+      const filtered = mode !== "isbn" && (filters.englishOnly || filters.sinceYear);
+      return {
+        results: [],
+        error: filtered
+          ? "No books found with these filters. Try \"Any year\" or untick \"English only\"."
+          : "No books found. Try a different search.",
+      };
     }
 
     return { results, error: null };
